@@ -31,9 +31,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/OWNER/REPO/releases/latest/download/latest.json"
+        "https://github.com/AdamKnightxsl/SidebarMemo/releases/latest/download/latest.json"
       ],
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYxNUJFRDhEQkJGMzA5QkUKUldTK0NmTzdqZTFiOGJwejVFbUZFK3ZUL3M4WWMzVnk1KzlvRExZOG1xcFphYzdPeUZ5Nm5QVTIK",
       "windows": {
         "installMode": "basicUi"
       }
