@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <clipPath id="roundClip">
+      <rect width="512" height="512" rx="96" ry="96"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#roundClip)">
+    <rect width="512" height="512" fill="#5B8C5A"/>
+    <!-- Paper -->
+    <rect x="120" y="80" width="272" height="352" rx="12" fill="white" opacity="0.9"/>
+    <!-- Folded corner -->
+    <path d="M320 80 L392 80 L392 152 Z" fill="#e8e8e8"/>
+    <path d="M320 80 L320 152 L392 152 Z" fill="white"/>
+    <!-- Text lines -->
+    <rect x="160" y="200" width="160" height="8" rx="4" fill="#999"/>
+    <rect x="160" y="240" width="200" height="8" rx="4" fill="#999"/>
+    <rect x="160" y="280" width="140" height="8" rx="4" fill="#999"/>
+    <!-- Pencil body -->
+    <g transform="rotate(-45 280 300)">
+      <rect x="200" y="285" width="160" height="18" rx="4" fill="white" stroke="#5B8C5A" stroke-width="3"/>
+      <!-- Pencil tip -->
+      <polygon points="360,285 360,303 385,294" fill="white" stroke="#5B8C5A" stroke-width="3" stroke-linejoin="round"/>
+      <!-- Pencil eraser -->
+      <rect x="190" y="285" width="18" height="18" rx="3" fill="#5B8C5A"/>
+    </g>
+  </g>
+</svg>
