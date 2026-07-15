@@ -10,11 +10,11 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "vue": "^3.4.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-global-shortcut": "^2.0.0",
+    "@tauri-apps/plugin-process": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.0.0",
-    "@tauri-apps/plugin-process": "^2.0.0"
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
