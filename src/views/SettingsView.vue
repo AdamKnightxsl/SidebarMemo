@@ -43,18 +43,32 @@ onMounted(() => {
 });
 
 async function handleCheckUpdate() {
+  console.log("[UI] 点击检查更新", { checking: checking.value, updating: updating.value, updateAvailable: updateAvailable.value });
   if (checking.value || updating.value) return;
   if (statusTimer) { clearTimeout(statusTimer); statusTimer = null; }
   statusMessage.value = "";
+
+  // 如果已有更新缓存，直接安装
+  if (updateAvailable.value) {
+    console.log("[UI] 直接安装");
+    await installUpdate();
+    return;
+  }
+
+  // 否则检查更新
   checking.value = true;
-  console.log("[UI] 开始检查更新...");
-  const update = await checkForUpdates();
-  console.log("[UI] 结果:", update ? "有更新" : "无更新", "错误:", lastError.value);
-  checking.value = false;
-  if (update) {
-    await installUpdate(update);
-  } else {
-    statusMessage.value = lastError.value || "已是最新版本";
+  try {
+    const update = await checkForUpdates();
+    checking.value = false;
+    if (update) {
+      await installUpdate(update);
+    } else {
+      statusMessage.value = lastError.value || "已是最新版本";
+      statusTimer = setTimeout(() => { statusMessage.value = ""; statusTimer = null; }, 2000);
+    }
+  } catch (e) {
+    checking.value = false;
+    statusMessage.value = "检查失败";
     statusTimer = setTimeout(() => { statusMessage.value = ""; statusTimer = null; }, 2000);
   }
 }
@@ -176,7 +190,7 @@ onBeforeUnmount(() => {
         <span v-else>检查更新</span>
       </button>
     </div>
-    <div class="version-text">当前版本 v1.0.3</div>
+    <div class="version-text">当前版本 v1.0.2</div>
   </div>
 </template>
 

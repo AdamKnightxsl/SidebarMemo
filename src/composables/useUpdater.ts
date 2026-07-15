@@ -7,35 +7,36 @@ const updateAvailable = ref(false);
 const updateVersion = ref("");
 const downloadProgress = ref(0);
 const lastError = ref("");
+let cachedUpdate: any = null;
 
 export function useUpdater() {
   async function checkForUpdates() {
     lastError.value = "";
     updateAvailable.value = false;
     try {
-      console.log("[Updater] 开始检查更新...");
       const update = await check();
-      console.log("[Updater] 检查结果:", update ? `发现新版本 ${update.version}` : "无更新");
       if (update) {
+        cachedUpdate = update;
         updateAvailable.value = true;
         updateVersion.value = update.version || "";
         return update;
       }
     } catch (e: any) {
       lastError.value = e?.message || String(e);
-      console.error("[Updater] 检查更新失败:", e);
+      console.error("检查更新失败:", e);
     }
     return null;
   }
 
-  async function installUpdate(update: any) {
-    if (updating.value) return;
+  async function installUpdate(update?: any) {
+    const target = update || cachedUpdate;
+    if (!target || updating.value) return;
     updating.value = true;
     downloadProgress.value = 0;
     lastError.value = "";
 
     try {
-      await update.downloadAndInstall((event: any) => {
+      await target.downloadAndInstall((event: any) => {
         if (event.event === "Started") {
           downloadProgress.value = 0;
         } else if (event.event === "Progress") {
