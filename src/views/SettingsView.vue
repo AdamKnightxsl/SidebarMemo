@@ -6,6 +6,7 @@ import { useUpdater } from "../composables/useUpdater";
 const { settings, saveShortcut, saveTheme, saveSkin } = useSettings();
 const openGuide = inject<() => void>("showGuide", () => {});
 const { updating, updateAvailable, updateVersion, downloadProgress, checkForUpdates, installUpdate } = useUpdater();
+const noUpdateMessage = ref("");
 
 const recording = ref(false);
 const recordedKeys = ref<string[]>([]);
@@ -40,11 +41,16 @@ onMounted(() => {
 });
 
 async function handleCheckUpdate() {
+  noUpdateMessage.value = "";
   if (updateAvailable.value) {
     const update = await checkForUpdates(false);
     if (update) await installUpdate(update);
   } else {
-    await checkForUpdates(false);
+    const update = await checkForUpdates(false);
+    if (!update) {
+      noUpdateMessage.value = "已是最新版本";
+      setTimeout(() => { noUpdateMessage.value = ""; }, 3000);
+    }
   }
 }
 
@@ -153,21 +159,17 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="setting-group">
-      <div class="setting-label">帮助</div>
-      <button class="neu-btn" @click="openGuide">
-        <span>📖 查看引导手册</span>
+    <div class="setting-row">
+      <button class="neu-btn-sm" @click="openGuide">
+        <span>引导手册</span>
       </button>
-    </div>
-
-    <div class="setting-group">
-      <div class="setting-label">软件更新</div>
-      <button class="neu-btn" @click="handleCheckUpdate" :disabled="updating">
+      <button class="neu-btn-sm" @click="handleCheckUpdate" :disabled="updating">
         <span v-if="updating">下载中 {{ Math.round(downloadProgress) }}%...</span>
-        <span v-else-if="updateAvailable">发现新版本 v{{ updateVersion }}，点击安装</span>
-        <span v-else>🔄 检查更新</span>
+        <span v-else-if="updateAvailable">新版本 v{{ updateVersion }}，点击安装</span>
+        <span v-else>检查更新</span>
       </button>
     </div>
+    <div v-if="noUpdateMessage" class="update-hint">{{ noUpdateMessage }}</div>
   </div>
 </template>
 
@@ -214,6 +216,40 @@ onBeforeUnmount(() => {
 .neu-btn:active {
   box-shadow: inset 3px 3px 6px var(--neu-shadow-dark, #b8bec7),
               inset -3px -3px 6px var(--neu-shadow-light, #ffffff);
+}
+
+.update-hint {
+  margin-top: 8px;
+  text-align: center;
+  color: var(--text-muted, #999);
+  font-size: 12px;
+}
+
+.setting-row {
+  display: flex;
+  gap: 10px;
+}
+
+.neu-btn-sm {
+  flex: 1;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--neu-bg, #e0e5ec);
+  border: none;
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 3px 3px 6px var(--neu-shadow-dark, #b8bec7),
+              -3px -3px 6px var(--neu-shadow-light, #ffffff);
+  transition: box-shadow 0.2s;
+}
+
+.neu-btn-sm:active {
+  box-shadow: inset 2px 2px 4px var(--neu-shadow-dark, #b8bec7),
+              inset -2px -2px 4px var(--neu-shadow-light, #ffffff);
 }
 
 .skin-grid {

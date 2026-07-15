@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/tauri/main/crates/tauri-config-schema/schema.json",
   "productName": "Sidebar Memo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "com.sidebar.memo",
   "build": {
     "frontendDist": "../dist",
