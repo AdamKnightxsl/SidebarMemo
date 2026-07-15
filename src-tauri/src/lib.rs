@@ -452,6 +452,35 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 尝试从 Windows 注册表读取系统代理配置
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = std::process::Command::new("reg")
+            .args(["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", "/v", "ProxyEnable"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.contains("0x1") {
+                if let Ok(output) = std::process::Command::new("reg")
+                    .args(["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", "/v", "ProxyServer"])
+                    .output()
+                {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        if line.contains("ProxyServer") {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if let Some(proxy) = parts.last() {
+                                let proxy_url = if proxy.starts_with("http") { proxy.to_string() } else { format!("http://{}", proxy) };
+                                std::env::set_var("HTTPS_PROXY", &proxy_url);
+                                std::env::set_var("HTTP_PROXY", &proxy_url);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let settings = load_settings();
     let shortcut_str = settings.shortcut.clone();
     let saved_settings = settings.clone();

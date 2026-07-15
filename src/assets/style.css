@@ -1064,6 +1064,8 @@ body.is-dragging * {
   overflow-y: auto;
   position: relative;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-view h2 {

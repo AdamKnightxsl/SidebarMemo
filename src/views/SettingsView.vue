@@ -5,8 +5,10 @@ import { useUpdater } from "../composables/useUpdater";
 
 const { settings, saveShortcut, saveTheme, saveSkin } = useSettings();
 const openGuide = inject<() => void>("showGuide", () => {});
-const { updating, updateAvailable, updateVersion, downloadProgress, checkForUpdates, installUpdate } = useUpdater();
-const noUpdateMessage = ref("");
+const { updating, updateAvailable, updateVersion, downloadProgress, lastError, checkForUpdates, installUpdate } = useUpdater();
+const checking = ref(false);
+const statusMessage = ref("");
+let statusTimer: ReturnType<typeof setTimeout> | null = null;
 
 const recording = ref(false);
 const recordedKeys = ref<string[]>([]);
@@ -41,16 +43,17 @@ onMounted(() => {
 });
 
 async function handleCheckUpdate() {
-  noUpdateMessage.value = "";
-  if (updateAvailable.value) {
-    const update = await checkForUpdates(false);
-    if (update) await installUpdate(update);
+  if (checking.value || updating.value) return;
+  if (statusTimer) { clearTimeout(statusTimer); statusTimer = null; }
+  statusMessage.value = "";
+  checking.value = true;
+  const update = await checkForUpdates();
+  checking.value = false;
+  if (update) {
+    await installUpdate(update);
   } else {
-    const update = await checkForUpdates(false);
-    if (!update) {
-      noUpdateMessage.value = "已是最新版本";
-      setTimeout(() => { noUpdateMessage.value = ""; }, 3000);
-    }
+    statusMessage.value = lastError.value || "已是最新版本";
+    statusTimer = setTimeout(() => { statusMessage.value = ""; statusTimer = null; }, 2000);
   }
 }
 
@@ -163,13 +166,15 @@ onBeforeUnmount(() => {
       <button class="neu-btn-sm" @click="openGuide">
         <span>引导手册</span>
       </button>
-      <button class="neu-btn-sm" @click="handleCheckUpdate" :disabled="updating">
+      <button class="neu-btn-sm" @click="handleCheckUpdate" :disabled="updating || checking">
         <span v-if="updating">下载中 {{ Math.round(downloadProgress) }}%...</span>
         <span v-else-if="updateAvailable">新版本 v{{ updateVersion }}，点击安装</span>
+        <span v-else-if="checking">检查中<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></span>
+        <span v-else-if="statusMessage">{{ statusMessage }}</span>
         <span v-else>检查更新</span>
       </button>
     </div>
-    <div v-if="noUpdateMessage" class="update-hint">{{ noUpdateMessage }}</div>
+    <div class="version-text">当前版本 v1.0.2</div>
   </div>
 </template>
 
@@ -223,6 +228,25 @@ onBeforeUnmount(() => {
   text-align: center;
   color: var(--text-muted, #999);
   font-size: 12px;
+}
+
+.loading-dots span {
+  animation: blink 1.4s infinite both;
+}
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0; }
+  40% { opacity: 1; }
+}
+
+.version-text {
+  margin-top: auto;
+  padding-top: 16px;
+  text-align: right;
+  color: var(--text-muted, #999);
+  font-size: 11px;
 }
 
 .setting-row {

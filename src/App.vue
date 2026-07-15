@@ -206,7 +206,7 @@ onMounted(async () => {
   } catch (e) {
     showToast(String(e));
   }
-  checkForUpdates(true).catch(() => {});
+  checkForUpdates().catch(() => {});
   positionSaveTimer = setInterval(() => {
     invoke("save_current_position");
   }, 5000);

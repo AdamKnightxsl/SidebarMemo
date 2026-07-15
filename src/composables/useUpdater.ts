@@ -6,23 +6,22 @@ const updating = ref(false);
 const updateAvailable = ref(false);
 const updateVersion = ref("");
 const downloadProgress = ref(0);
+const lastError = ref("");
 
 export function useUpdater() {
-  async function checkForUpdates(silent = true) {
+  async function checkForUpdates() {
+    lastError.value = "";
+    updateAvailable.value = false;
     try {
       const update = await check();
       if (update) {
         updateAvailable.value = true;
         updateVersion.value = update.version || "";
-        if (!silent) {
-          await installUpdate(update);
-        }
         return update;
       }
-    } catch (e) {
-      if (!silent) {
-        console.error("检查更新失败:", e);
-      }
+    } catch (e: any) {
+      lastError.value = e?.message || String(e);
+      console.error("检查更新失败:", e);
     }
     return null;
   }
@@ -31,6 +30,7 @@ export function useUpdater() {
     if (updating.value) return;
     updating.value = true;
     downloadProgress.value = 0;
+    lastError.value = "";
 
     try {
       await update.downloadAndInstall((event: any) => {
@@ -43,7 +43,8 @@ export function useUpdater() {
         }
       });
       await relaunch();
-    } catch (e) {
+    } catch (e: any) {
+      lastError.value = e?.message || String(e);
       console.error("安装更新失败:", e);
       updating.value = false;
     }
@@ -54,6 +55,7 @@ export function useUpdater() {
     updateAvailable,
     updateVersion,
     downloadProgress,
+    lastError,
     checkForUpdates,
     installUpdate,
   };
