@@ -47,7 +47,9 @@ async function handleCheckUpdate() {
   if (statusTimer) { clearTimeout(statusTimer); statusTimer = null; }
   statusMessage.value = "";
   checking.value = true;
+  console.log("[UI] 开始检查更新...");
   const update = await checkForUpdates();
+  console.log("[UI] 结果:", update ? "有更新" : "无更新", "错误:", lastError.value);
   checking.value = false;
   if (update) {
     await installUpdate(update);
@@ -174,7 +176,7 @@ onBeforeUnmount(() => {
         <span v-else>检查更新</span>
       </button>
     </div>
-    <div class="version-text">当前版本 v1.0.2</div>
+    <div class="version-text">当前版本 v1.0.3</div>
   </div>
 </template>
 

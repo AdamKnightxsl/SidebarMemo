@@ -13,7 +13,9 @@ export function useUpdater() {
     lastError.value = "";
     updateAvailable.value = false;
     try {
+      console.log("[Updater] 开始检查更新...");
       const update = await check();
+      console.log("[Updater] 检查结果:", update ? `发现新版本 ${update.version}` : "无更新");
       if (update) {
         updateAvailable.value = true;
         updateVersion.value = update.version || "";
@@ -21,7 +23,7 @@ export function useUpdater() {
       }
     } catch (e: any) {
       lastError.value = e?.message || String(e);
-      console.error("检查更新失败:", e);
+      console.error("[Updater] 检查更新失败:", e);
     }
     return null;
   }
