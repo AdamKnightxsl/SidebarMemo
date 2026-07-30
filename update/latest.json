@@ -1,10 +1,10 @@
 {
   "version": "1.0.3",
   "notes": "模块拆分重构 + 代码复用收敛 + updater进度修复 + OCR + 快捷便签 + 拼音搜索",
-  "pub_date": "2026-07-30T19:22:16.416Z",
+  "pub_date": "2026-07-30T19:31:05.653Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYmFKR1IzcEJVWVdTUEhwSUliTDhDbGNzSnBOd24yak1haXI1MmFnWVlCcGpPOWJhRDEwbDgwWG9wL2MxbHFtVmV2RlZpK3lXZ3hiSGs5dXFpRmMzbmdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NDM5MzIzCWZpbGU6U2lkZWJhciBNZW1vXzEuMC4zX3g2NC1zZXR1cC5leGUKREowS0FBWHlTNDFUYmhnWWZlSGhyL0o2ZnVKZzFRb3dQb25BdXVvaFBYVUY4aFQ5V1IycXM3LzNXWFlPS1ZjdmJlakZjT0hHcFZ5UnVvVUtMSWdhQUE9PQo=",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYlphQlo4Y01HcU5YYWdmdzJZVEowOWQwR3FZSkdSWjNzWEhyc2lzTVovanNyZm5DUnlMc2dVK04zb0wyZEhGZ0IyeElQbHlNRmVyeG9iaTAyeTBFM1FVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NDM5ODUyCWZpbGU6U2lkZWJhciBNZW1vXzEuMC4zX3g2NC1zZXR1cC5leGUKRmpsNHg5dTVJNEF4MW1WOFNLSkpmVFBJUE9BbWxNYmdzNGZobVB3cEcybVY3cVNtcHVwRDhvRmp5VG1mSDdENG1IRUROd1BSVlZ4SDc4cHFJL09CQXc9PQo=",
       "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.3/Sidebar.Memo_1.0.3_x64-setup.exe"
     }
   }
