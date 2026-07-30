@@ -36,11 +36,18 @@ export function useUpdater() {
     lastError.value = "";
 
     try {
+      let totalBytes = 0;
+      let downloaded = 0;
       await target.downloadAndInstall((event: any) => {
         if (event.event === "Started") {
+          totalBytes = event.data?.contentLength || 0;
+          downloaded = 0;
           downloadProgress.value = 0;
         } else if (event.event === "Progress") {
-          downloadProgress.value = event.data.percent || 0;
+          downloaded += event.data?.chunkLength || 0;
+          downloadProgress.value = totalBytes > 0
+            ? Math.min(Math.round((downloaded / totalBytes) * 100), 99)
+            : 0;
         } else if (event.event === "Finished") {
           downloadProgress.value = 100;
         }

@@ -1,0 +1,154 @@
+========================================================================
+OCR 识别文字后「精准定位/像素级对齐」—— 复现提示词
+（把本文件整段发给任意代码 agent，即可在同类"图片查看器 + OCR 可选文字层"项目中复刻）
+========================================================================
+
+【一、总体目标】
+在一个图片查看器里，对图片跑 OCR，然后在图片上叠一层"透明的、可选中可复制的文字"，
+要求：
+1. 文字层与图片像素级对齐——每个词精确压在原图对应文字上，字号、位置、宽度都吻合。
+2. 图片任意缩放（滚轮）/拖拽后，文字层始终跟图片严丝合缝，零偏移、零累积误差。
+3. 中文、数字、字母、标点混排时，各段位置和间距都还原原始排版（数字串不挤、不飘）。
+4. 文字透明但可被鼠标选中并复制（overlay 在图片之上）。
+
+【二、核心架构：mimo 同容器方案（最关键，先立地基）】
+不要给文字层单独做"屏幕坐标转换"，那样每次缩放/拖拽都要重算、必然累积误差。
+正确做法——图片和文字层放进同一个 transform 容器，容器统一缩放/平移：
+
+  <div id="img-wrapper" style="position:absolute; transform-origin:0 0;">
+      <img id="img">               <!-- 原图，显式设为原图像素尺寸 -->
+      <div id="ocr-layer"></div>   <!-- 文字层，尺寸同原图 -->
+  </div>
+
+关键点：
+- transform-origin: 0 0（左上角为原点），则坐标映射极简：
+      屏幕位置 = 原图坐标 × scale + translate
+- 图片 onload 后，显式把 img 和 ocr-layer 的 width/height 都设成 naturalWidth/naturalHeight
+  （原图像素）。这样 OCR 返回的"原图像素坐标"可直接当 CSS left/top/width/height 用，
+  完全不需要坐标转换。
+- 缩放/拖拽只改容器的 transform: translate(offsetX,offsetY) scale(scale)，
+  图片和文字一起变换，天然对齐。
+- 居中显示：offsetX = (viewportW − naturalW×scale)/2，offsetY 同理。
+- 滚轮以鼠标为中心缩放：offset = mouse − (mouse − offset) × (newScale/scale)。
+
+单个文字元素样式：
+  .ocr-word{ position:absolute; display:block; white-space:nowrap; overflow:hidden;
+             color:transparent; pointer-events:auto; user-select:text; cursor:text;
+             font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif; }
+  （color:transparent 让文字隐形但可选中；overflow:hidden 裁掉多余宽度防溢出。）
+
+【三、后端 OCR 必须输出什么（数据契约）】
+OCR 引擎：PaddleOCR v6（PP-OCRv6 DB 检测 + rec 识别，MNN 推理）。换别的引擎也行，
+但每个"词/段"必须给出以下字段（坐标一律为"原图物理像素"）：
+  text            识别文本
+  x, y, w, h      DB 检测框（bbox）坐标与尺寸
+  confidence      置信度 0~1
+  ink_x/y/w/h     ★真实"墨水范围"（可选但强烈建议）——文字实际占据的像素框
+输出还需带原图 width/height。
+
+为什么要 ink（墨水范围）？
+- DB 检测框经 unclip 扩张，比真实文字大 ~1.56 倍（inkRatio≈0.64）。
+  直接拿 bbox.height 当字号会明显偏大、偏移。
+- ink 是"文字真正有像素的最小框"，用它定位/定字号才能像素级贴合。
+
+【四、后端如何算出 ink（灰度投影法，DB mask 不可用时的替代方案）】
+函数 compute_ink_bbox(gray, x,y,w,h) 步骤：
+1. bbox clamp 到图像边界，太小(<3px)直接放弃返回 None。
+2. 对该区域统计 256 级灰度直方图，用 Otsu 法自动求二值化阈值（类间方差最大）。
+3. 极性判断：像素较少的一类判为"墨水"（自动兼容深底白字/浅底黑字）；
+   墨水占比过低(<0.5%)或过高(>45%)说明区分度差，放弃。
+4. 行投影：逐行数墨水像素，容忍 ≤2 行断裂，取最大连通行段 → ink_top/ink_bottom。
+5. 列投影：只在有效行范围内取首尾有墨水的列 → ink_left/ink_right。
+6. 转回原图坐标返回；过小(<2px)视为退化返回 None（前端回退用 bbox）。
+性能：整图只灰度化一次(to_luma8)复用，严禁在每个词的循环里重复转换。
+
+【五、后端文本拆分与宽度分配（还原混排排版）】
+OCR 一行结果常把"中文+数字+空格"连在一起，需按字符类型边界拆成多段，
+每段单独定位，才能避免数字串位置飘移：
+- 字符分类：CJK / Digit / Alpha / Space / Punct。
+- 拆分规则：空格前后断开；CJK↔数字、CJK↔字母、数字↔字母 边界断开；空格保留为独立段。
+  例："订单编号6928235329501428781下单时间" → ["订单编号","6928…781","下单时间"]
+- 字符显示宽度单位（按实际渲染宽度经验值）：CJK=1.0，数字=0.69，字母=0.55，其他=0.5。
+- 宽度分配：把整行 bbox 宽度按各段"字符单位数"比例分给各段；
+  有空格段则文字段和空格段按各自单位数分（空格每字符计 1 单位，17 个空格得 17 倍宽）。
+- 无空格但因类型拆成多段：在 CJK↔数字/字母 边界补一个小间隙
+  （≈0.5 个 CJK 宽，gap = min(w×0.02, w/(units+boundaries)×0.5)），还原视觉间距。
+- 每段再独立做一次 compute_ink_bbox（段级墨水测量）；失败则回退"行级 ink 线性重映射"
+  （按 (seg_x−x)/w 比例在行 ink 内取子区间）。段级独立测量能消除数字与中文墨水高度
+  差异导致的偏移。
+
+【六、前端渲染：把每个词精确摆到位（墨水级路径 + 回退路径）】
+前置：用 Canvas measureText 实测字体的墨水/em 关系（关键，解决数字/中文字形留白差异）：
+  measureCtx.font = "100px " + FONT_FAMILY;      // 100 = 参考字号 REF
+  m = measureCtx.measureText(text);
+  inkH   = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;  // 墨水高
+  inkAscent = m.actualBoundingBoxAscent;                            // 基线上墨水高
+  inkLeft = -m.actualBoundingBoxLeft;                               // 首字符左留白
+  inkW   = m.actualBoundingBoxRight + m.actualBoundingBoxLeft;      // 墨水宽
+  fontAscent = m.fontBoundingBoxAscent; fontDescent = m.fontBoundingBoxDescent; // em box
+  （所有指标随 fontSize/REF 线性缩放，缩放系数 s = fontSize/REF。）
+
+【墨水级路径】（word 带 ink_height/ink_width 且 measure 成功 inkH>1）：
+  1. 反解字号让"渲染墨水高 = 原图墨水高"：
+        fontSize = ink_height × (REF / inkH)        // 数字墨水占 em 少 → 自动得到更大字号
+        s = fontSize / REF
+  2. 垂直定位（line-height = fontSize 时）：
+        halfLeading  = (fontSize − (fontAscent + fontDescent)×s) / 2
+        inkTopInSpan = halfLeading + (fontAscent − inkAscent)×s
+        top = ink_y − inkTopInSpan
+  3. 水平定位（补偿首字符左侧留白）：
+        left = ink_x − inkLeft×s
+  4. 宽度匹配（用 letter-spacing 把渲染墨水宽拉/压到原图墨水宽）：
+        renderedInkW = inkW × s
+        spacing = (ink_width − renderedInkW) / (charCount − 1)
+        spacing = clamp(spacing, −fontSize×0.08, fontSize×0.8)   // 防过度拉压
+        width = ink_width + inkLeft×s + 2                        // 留余量，overflow 裁尾
+     设置 fontSize / lineHeight / height 均 = fontSize。
+
+【回退路径】（无 ink 或 measure 失败）：
+        left/top/width/height = bbox 的 x/y/w/h
+        fontSize = max(10, h × 0.60)      // 0.60 是 DB 框到墨水的经验比
+        lineHeight = h                    // 靠行高在 bbox 内垂直居中
+
+排序：渲染前把 words 按阅读顺序排（先上后下，同行先左后右）：
+  overlapY = min(a.bottom,b.bottom) − max(a.y,b.y);
+  if (overlapY > min(a.h,b.h)×0.5) 比 x 否则比 y。
+
+【七、交互（缩放/拖拽/选择/复制）】
+- 拖拽平移：stage mousedown 记录起点，mousemove 改 offset；但 mousedown 命中 .ocr-word
+  时不 preventDefault，让浏览器正常处理文字选择。
+- 滚轮缩放以鼠标为中心（见第二节公式）。
+- 文字可选中：.ocr-word 设 pointer-events:auto; user-select:text。
+- 选中后右键弹"复制"菜单，navigator.clipboard.writeText 写入，失败降级 execCommod。
+- 缩放/拖拽/切图时隐藏复制菜单。
+
+【八、关键坑位（务必避免）】
+1. overflow:hidden 对 transform 后内容"看起来"仍可能溢出——宽度必须用 width 严格限制，
+   且不要用 scaleX>1 拉伸（会溢出裁不掉），改用 letter-spacing 调宽。
+2. 测量文字真实渲染宽度要用 scrollWidth，它不受父容器 transform 影响；
+   need 保留布局时用 visibility:hidden 而非 display:none。
+3. 图片必须显式设 naturalWidth/Height 的 px 尺寸，否则和 OCR 原图坐标不在同一坐标系。
+4. 灰度图整图只转一次，别在词循环里反复 to_luma8（性能陷阱）。
+5. 段级 ink 测量可能失败，一定要有"行级线性重映射 / bbox+经验比"的多级回退，否则丢词。
+6. Vite 项目：viewer.html 要放 public/ 目录并在 tauri.conf.json 指向它；
+   若根目录也有同名 html 会被当 MPA 入口"遮蔽"public 版本，导致改了不生效。
+7. measureText 的 actualBoundingBox 在个别字体/字符上可能异常，用前判断 inkH>1。
+
+【九、当前生效的经验参数（可直接抄）】
+- REF 参考字号 = 100；回退字号比 OCR_FONT_RATIO = 0.60。
+- DB 框 / 墨水高度比 ≈ 1.56（inkRatio ≈ 0.64）。
+- 字符宽度单位：CJK 1.0 / 数字 0.69 / 字母 0.55 / 其他 0.5。
+- letter-spacing 钳制区间：[−fontSize×0.08, +fontSize×0.8]。
+- OCR 引擎：det unclip_ratio = 1.0（收紧框）、merge_boxes = false（保留原始间距）。
+- 墨水占比有效区间 0.5%~45%，行断裂容忍 ≤2 行，段/词过小(<2px)判退化。
+
+【十、验证方式】
+- Rust：cargo check（PowerShell 会把 cargo 进度当错误流，以最后一行 Finished 为准）。
+- 前端：无构建则直接在查看器里开调试模式（本项目按 D 显示红框+红字），
+  肉眼看红框是否贴合真实文字、数字串是否不飘、缩放后是否仍对齐。
+- 逐项验收：字号贴合、水平/垂直不偏、混排间距自然、缩放拖拽零偏移、可选中可复制。
+
+========================================================================
+（完）本效果核心 = 同 transform 容器(origin 0 0) + 后端输出真实墨水框(ink) +
+Canvas 实测墨水/em 比反解字号 + 类型边界拆段与宽度分配 + 多级回退。
+========================================================================

@@ -1,7 +1,16 @@
-﻿<script setup lang="ts">
-import { ref, nextTick, onMounted, onBeforeUnmount, computed } from "vue";
-import { useMemos, type Memo } from "../composables/useMemos";
+<script setup lang="ts">
+import { ref, nextTick, onMounted, onBeforeUnmount, computed, inject, watch } from "vue";
+import { useMemos, type Memo, type ShowToastFn } from "../composables/useMemos";
+import { useThumbnailCache } from "../composables/useThumbnailCache";
+import { highlightInHtml } from "../composables/pinyinSearch";
+import { sanitizeHtml } from "../composables/sanitizeHtml";
 import { invoke } from "@tauri-apps/api/core";
+import { marked } from "marked";
+import { usePopupPosition } from "../composables/usePopupPosition";
+import { useClickOutside } from "../composables/useClickOutside";
+
+// 配置 marked
+marked.setOptions({ breaks: true, gfm: true });
 
 const props = defineProps<{
   memo: Memo;
@@ -20,8 +29,11 @@ const {
   reorderMemos,
   saveImage,
   deleteImage,
-  getImageBase64,
+  getImageAssetUrl,
+  searchQuery,
 } = useMemos();
+
+const showToast = inject<ShowToastFn>('showToast', (msg: string) => console.warn(msg));
 
 const editing = ref(false);
 const editText = ref("");
@@ -36,6 +48,26 @@ const colorBtnRef = ref<HTMLButtonElement | null>(null);
 const reminderBtnRef = ref<HTMLButtonElement | null>(null);
 const expanded = ref(false);
 
+// —— 图片加载失败状态 ——
+// 记录加载失败的 filename（CSP 误配、文件丢失等场景），模板据此切到失败占位，
+// 避免破图被静默吞掉。重新加载图片（src 变化）时在 loadThumbnailImages / startEdit 清除标记。
+const brokenImages = ref<Set<string>>(new Set());
+
+function markImageBroken(filename: string) {
+  // src 尚未加载（空字符串）不算失败，避免异步加载期间误标记
+  const thumb = getThumb(props.memo.id, filename);
+  const url = thumbnailUrls.value.get(filename)
+    || editImageUrls.value.get(filename);
+  if (!thumb && !url) return;
+  if (!brokenImages.value.has(filename)) {
+    brokenImages.value = new Set(brokenImages.value).add(filename);
+  }
+}
+
+function clearBrokenImages() {
+  if (brokenImages.value.size > 0) brokenImages.value = new Set();
+}
+
 // —— Image editing state ——
 const editImages = ref<string[]>([]);
 const editImageUrls = ref<Map<string, string>>(new Map());
@@ -44,28 +76,17 @@ const imageExpandedAnim = ref(false);
 let clickTimer: ReturnType<typeof setTimeout> | null = null;
 
 // —— Popup positions (fixed, relative to viewport) ——
-const colorPickerStyle = ref<Record<string, string>>({});
-const reminderMenuStyle = ref<Record<string, string>>({});
+const { popupStyle: colorPickerStyle, updatePosition: computeColorPickerPos } = usePopupPosition(colorBtnRef);
+const { popupStyle: reminderMenuStyle, updatePosition: computeReminderMenuPos } = usePopupPosition(reminderBtnRef);
 
-function computeColorPickerPos() {
-  if (!colorBtnRef.value) return;
-  const rect = colorBtnRef.value.getBoundingClientRect();
-  colorPickerStyle.value = {
-    position: 'fixed',
-    top: rect.bottom + 4 + 'px',
-    right: (window.innerWidth - rect.right) + 'px',
-  };
-}
-
-function computeReminderMenuPos() {
-  if (!reminderBtnRef.value) return;
-  const rect = reminderBtnRef.value.getBoundingClientRect();
-  reminderMenuStyle.value = {
-    position: 'fixed',
-    top: rect.bottom + 4 + 'px',
-    right: (window.innerWidth - rect.right) + 'px',
-  };
-}
+useClickOutside({
+  ignore: [".color-picker-popup", ".color-btn"],
+  onClickOutside: () => { if (showColorPicker.value) showColorPicker.value = false; },
+});
+useClickOutside({
+  ignore: [".reminder-menu", ".reminder-btn"],
+  onClickOutside: () => { if (showReminderMenu.value) showReminderMenu.value = false; },
+});
 
 // —— Memo images parsed ——
 const memoImages = computed(() => {
@@ -73,6 +94,34 @@ const memoImages = computed(() => {
     const arr = JSON.parse(props.memo.images || "[]");
     return Array.isArray(arr) ? arr : [];
   } catch { return []; }
+});
+
+// Markdown rendering
+const renderedContent = computed(() => {
+  return marked.parse(props.memo.content || '') as string;
+});
+
+// Truncated for collapsed view
+const truncatedContent = computed(() => {
+  const raw = props.memo.content || '';
+  const lines = raw.split('\n').filter(l => l.trim());
+  const truncated = lines.slice(0, 4).join('\n');
+  return lines.length > 4 ? truncated + '...' : truncated;
+});
+
+// Search highlight（支持拼音匹配高亮）
+const isSearching = computed(() => searchQuery.value.trim().length > 0);
+
+const displayedContent = computed(() => {
+  // 显式读取 searchQuery 确保 Vue 追踪依赖
+  const q = searchQuery.value.trim();
+  // 搜索时展开显示全部内容
+  const rawHtml = (expanded.value || q.length > 0)
+    ? renderedContent.value
+    : marked.parse(truncatedContent.value) as string;
+  // 统一净化，剥离脚本/事件处理属性，防止 v-html 注入执行
+  const finalHtml = q ? highlightInHtml(rawHtml, q) : rawHtml;
+  return sanitizeHtml(finalHtml);
 });
 
 // —— Click to expand / Double-click to edit ——
@@ -115,16 +164,8 @@ async function startEdit() {
   // Initialize edit images from memo
   const images = memoImages.value;
   editImages.value = [...images];
-  const urls = new Map<string, string>();
-  for (const filename of images) {
-    const b64 = await getImageBase64(props.memo.id, filename);
-    if (b64) {
-      const ext = filename.split('.').pop()?.toLowerCase() || 'png';
-      const mime = ext === 'jpg' ? 'image/jpeg' : ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
-      urls.set(filename, `data:${mime};base64,${b64}`);
-    }
-  }
-  editImageUrls.value = urls;
+  editImageUrls.value = new Map();
+  clearBrokenImages();
 
   nextTick(() => {
     editArea.value?.focus();
@@ -134,6 +175,17 @@ async function startEdit() {
     );
     autoResize();
   });
+
+  // 编辑态小图优先走缩略图缓存秒显；未命中的才异步加载原图兜底并补建缓存
+  for (const filename of images) {
+    if (getThumb(props.memo.id, filename)) continue;
+    const assetUrl = await getImageAssetUrl(props.memo.id, filename);
+    if (assetUrl) {
+      editImageUrls.value.set(filename, assetUrl);
+      editImageUrls.value = new Map(editImageUrls.value);
+      ensureThumb(props.memo.id, filename, assetUrl);
+    }
+  }
 }
 
 function stopEdit() {
@@ -173,7 +225,7 @@ async function handleFileSelect(e: Event) {
   input.value = '';
 
   if (file.size > 20 * 1024 * 1024) {
-    alert("图片大小不能超过 20MB");
+    showToast("图片大小不能超过 20MB", 3000);
     return;
   }
 
@@ -187,6 +239,7 @@ async function handleFileSelect(e: Event) {
       editImages.value.push(filename);
       editImageUrls.value.set(filename, dataUrl);
       editImageUrls.value = new Map(editImageUrls.value);
+      ensureThumb(props.memo.id, filename, dataUrl);
     }
   };
   reader.readAsDataURL(file);
@@ -194,6 +247,7 @@ async function handleFileSelect(e: Event) {
 
 async function handleImageRemove(filename: string) {
   await deleteImage(props.memo.id, filename);
+  evictThumb(props.memo.id, filename);
   editImages.value = editImages.value.filter((f) => f !== filename);
   const url = editImageUrls.value.get(filename);
   if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
@@ -213,7 +267,7 @@ async function handlePaste(e: ClipboardEvent) {
       if (!file) continue;
 
       if (file.size > 20 * 1024 * 1024) {
-        alert("图片大小不能超过 20MB");
+        showToast("图片大小不能超过 20MB", 3000);
         return;
       }
 
@@ -228,6 +282,7 @@ async function handlePaste(e: ClipboardEvent) {
           editImages.value.push(filename);
           editImageUrls.value.set(filename, dataUrl);
           editImageUrls.value = new Map(editImageUrls.value);
+          ensureThumb(props.memo.id, filename, dataUrl);
         }
       };
       reader.readAsDataURL(file);
@@ -236,17 +291,21 @@ async function handlePaste(e: ClipboardEvent) {
   }
 }
 
-// —— Image URLs (shared for thumbnail + expanded) ——
+// —— Image URLs (thumbnail + expanded) ——
+// thumbnailUrls 存原图 dataURL（展开态使用）；折叠态缩略图优先走模块级缓存，
+// 卡片重挂载时缓存秒显示，避免大图重新加载造成的视觉割裂
+const { getThumb, ensureThumb, evictThumb } = useThumbnailCache();
 const thumbnailUrls = ref<Map<string, string>>(new Map());
 
 async function loadThumbnailImages() {
+  clearBrokenImages();
   const urls = new Map<string, string>();
   for (const filename of memoImages.value) {
-    const b64 = await getImageBase64(props.memo.id, filename);
-    if (b64) {
-      const ext = filename.split('.').pop()?.toLowerCase() || 'png';
-      const mime = ext === 'jpg' ? 'image/jpeg' : ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
-      urls.set(filename, `data:${mime};base64,${b64}`);
+    const assetUrl = await getImageAssetUrl(props.memo.id, filename);
+    if (assetUrl) {
+      urls.set(filename, assetUrl);
+      // 生成/补全折叠态缩略图缓存（已命中则跳过）
+      ensureThumb(props.memo.id, filename, assetUrl);
     }
   }
   thumbnailUrls.value = urls;
@@ -259,11 +318,25 @@ async function openImageViewer(index: number) {
   const now = Date.now();
   if (now - lastImageOpenTime < 500) return;
   lastImageOpenTime = now;
-  const urls = Array.from(thumbnailUrls.value.values());
-  if (urls.length === 0) return;
+
+  const filenames = [...memoImages.value];
+  if (filenames.length === 0) {
+    showToast("没有可预览的图片");
+    return;
+  }
+  const safeIndex = Math.max(0, Math.min(index, filenames.length - 1));
+
   try {
-    await invoke("open_image_viewer", { imageData: urls[index] });
+    // 只发文件名引用，viewer 窗口按需加载图片数据（避免大体积 base64 跨 IPC 传输）
+    await invoke("open_image_viewer", {
+      payload: {
+        memoId: props.memo.id,
+        filenames,
+        index: safeIndex,
+      },
+    });
   } catch (e) {
+    showToast("打开图片失败: " + String(e));
     console.error("open_image_viewer failed:", e);
   }
 }
@@ -325,7 +398,6 @@ function showCustomTimeInput() {
   showCustomTime.value = true;
   const now = new Date();
   now.setMinutes(now.getMinutes() + 30);
-  const pad = (n: number) => n.toString().padStart(2, "0");
   customTimeValue.value = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) + "T" + pad(now.getHours()) + ":" + pad(now.getMinutes());
 }
 
@@ -350,21 +422,11 @@ function handleDelete() {
   }, 250);
 }
 
-// —— Global click to close color picker / expanded / stop flash ——
+// —— Global click to close expanded / stop flash / stop editing ——
 function onGlobalClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   if (target.closest(".memo-card")) {
     target.closest(".memo-card")?.classList.remove("reminder-flash");
-  }
-  if (showColorPicker.value) {
-    if (!target.closest(".color-picker-popup") && !target.closest(".color-btn")) {
-      showColorPicker.value = false;
-    }
-  }
-  if (showReminderMenu.value) {
-    if (!target.closest(".reminder-menu") && !target.closest(".reminder-btn")) {
-      showReminderMenu.value = false;
-    }
   }
   if (expanded.value) {
     if (!target.closest(".memo-content") && !target.closest(".memo-images-expanded")) {
@@ -552,7 +614,7 @@ function formatTime(t: string) {
 }
 
 // —— Watch expanded to trigger animation ——
-import { watch } from "vue";
+
 watch(expanded, (val) => {
   if (val && memoImages.value.length > 0) {
     imageExpandedAnim.value = false;
@@ -705,11 +767,14 @@ watch(memoImages, () => {
     <!-- Content + Thumbnail layout (collapsed) -->
     <div v-if="!editing" class="memo-body">
       <div
-        class="memo-content"
-        :class="{ expanded: expanded }"
+        class="memo-content markdown-body"
+        :class="{ expanded: expanded || isSearching }"
+        :key="'c-' + memo.id + '-' + searchQuery + '-' + expanded"
         @click="handleContentClick"
         @dblclick="handleContentDblClick"
-      >{{ memo.content }}</div>
+        v-html="displayedContent"
+
+            ></div>
 
       <!-- Right side thumbnail (collapsed only) -->
       <div
@@ -717,14 +782,23 @@ watch(memoImages, () => {
         class="memo-thumbnail-area"
       >
         <div class="memo-thumbnail-stack">
-          <img
-            v-for="(filename, i) in memoImages.slice(0, 2)"
-            :key="filename"
-            :src="thumbnailUrls.get(filename) || ''"
-            class="memo-thumbnail"
-            :style="{ zIndex: 2 - i, marginLeft: i > 0 ? '-12px' : '0' }"
-            @click.stop="openImageViewer(i)"
-          />
+          <template v-for="(filename, i) in memoImages.slice(0, 2)" :key="filename">
+            <img
+              v-if="!brokenImages.has(filename)"
+              :src="getThumb(memo.id, filename) || thumbnailUrls.get(filename) || ''"
+              class="memo-thumbnail"
+              :style="{ zIndex: 2 - i, marginLeft: i > 0 ? '-12px' : '0' }"
+              @click.stop="openImageViewer(i)"
+              @error="markImageBroken(filename)"
+            />
+            <div
+              v-else
+              class="memo-thumbnail is-broken"
+              :style="{ zIndex: 2 - i, marginLeft: i > 0 ? '-12px' : '0' }"
+              @click.stop="openImageViewer(i)"
+              title="图片加载失败"
+            >!</div>
+          </template>
           <span v-if="memoImages.length > 2" class="memo-thumbnail-more">
             +{{ memoImages.length - 2 }}
           </span>
@@ -734,15 +808,23 @@ watch(memoImages, () => {
 
     <!-- Expanded images -->
     <div v-if="!editing && expanded && memoImages.length > 0" class="memo-images-expanded">
-      <img
-        v-for="(filename, i) in memoImages"
-        :key="filename"
-        :src="thumbnailUrls.get(filename) || ''"
-        class="memo-expanded-img"
-        :class="{ 'anim-visible': imageExpandedAnim }"
-        @click.stop="openImageViewer(i)"
-        style="cursor: pointer"
-      />
+      <template v-for="(filename, i) in memoImages" :key="filename">
+        <img
+          v-if="!brokenImages.has(filename)"
+          :src="thumbnailUrls.get(filename) || ''"
+          class="memo-expanded-img"
+          :class="{ 'anim-visible': imageExpandedAnim }"
+          @click.stop="openImageViewer(i)"
+          style="cursor: pointer"
+          @error="markImageBroken(filename)"
+        />
+        <div
+          v-else
+          class="memo-expanded-img is-broken"
+          :class="{ 'anim-visible': imageExpandedAnim }"
+          @click.stop="openImageViewer(i)"
+        >图片加载失败</div>
+      </template>
     </div>
 
     <!-- Edit area -->
@@ -758,14 +840,19 @@ watch(memoImages, () => {
       ></textarea>
 
       <!-- Image editing area -->
-      <div class="edit-images-area" v-if="editImages.length > 0 || true">
+      <div class="edit-images-area" v-if="true">
         <div class="edit-images-row">
           <div
             v-for="filename in editImages"
             :key="filename"
             class="edit-image-thumb"
           >
-            <img :src="editImageUrls.get(filename) || ''" />
+            <img
+              v-if="!brokenImages.has(filename)"
+              :src="getThumb(memo.id, filename) || editImageUrls.get(filename) || ''"
+              @error="markImageBroken(filename)"
+            />
+            <div v-else class="edit-image-broken">!</div>
             <button class="edit-image-remove" @mousedown.prevent @click.stop="handleImageRemove(filename)" title="删除图片">×</button>
           </div>
           <button class="edit-image-add" @mousedown.prevent @click.stop="triggerFileInput" title="添加图片">

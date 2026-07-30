@@ -1,0 +1,224 @@
+========================================================================
+侧边栏窗口 弹出/隐藏 缓动动画 —— 复现提示词
+（把本文件整段发给任意代码 agent，即可在同类桌面窗口项目中复刻同样的动画效果）
+========================================================================
+
+【一、总体目标】
+为一个贴边吸附的桌面侧边栏窗口实现「弹出」和「隐藏」的滑动动画，要求：
+1. 动画在“原生端/主进程”执行（不要用浏览器 requestAnimationFrame 或 CSS 过渡），
+   否则窗口失焦、后台节流时会掉帧、卡顿。
+2. 视觉是“Win10 通知栏”式的分段缓动：起步快速冲出，末段肉眼可见地慢下来贴合停靠，
+   而不是线性匀速。
+3. 动画末尾绝对不能出现“左右/上下抖动”（这是窗口逐像素移动时，窗口内容层与窗框
+   异步刷新错位造成的固有陷阱）。
+4. 弹出与隐藏必须能各自独立调速，互不影响。
+
+【二、技术栈假设】
+- 桌面框架：Tauri 2（Rust 后端 + WebView 前端）。若用 Electron/Qt/WinAPI，
+  把“Rust 命令”换成对应的主进程/原生函数即可，算法完全一致。
+- 动画核心放在原生端一个异步命令里：animate_window_position(target_x, target_y,
+  duration_ms, expand)。前端只负责设起点、调用该命令、传方向标志。
+
+【三、关键设计（必须全部实现，缺一个都会有瑕疵）】
+
+3.1 原生端逐帧移动窗口
+- 用高精度计时循环，按显示器刷新率算帧间隔（如 60Hz→约 16.6ms）。
+- Windows 上进入循环前调用 timeBeginPeriod(1) 把定时器精度提到 1ms，
+  用 sleep + 自旋(spin)混合等待做精确帧同步，避免 sleep 抖动。
+- 每帧：算归一化进度 t = elapsed / duration ∈ [0,1]，代入缓动函数得 ease ∈ [0,1]，
+  目标位移 = 起点 + 全程位移 * ease，set_position。
+
+3.2 分段二次缓动（本方案精髓）
+不要用现成的 easeOutExpo/easeOutQuint。它们尾段速度会“骤降到逐像素区”，
+和 3.3 的最小步长机制冲突，导致缓冲被“快进”砍掉，看起来猛冲一下就停。
+改用“按你想要的时间-路程分配，反推出来的分段二次曲线”，好处：
+- 你能直接指定“前 X% 路程用多少 ms、后 Y% 路程用多少 ms”，节奏完全可控；
+- 每段是二次函数(速度线性)，只要让相邻段“交界处位置连续 + 速度连续”，
+  就绝不会有分段顿挫；
+- 末段速度可以保持在“每帧 ≥2px”附近，缓冲全程可见又不进入抖动区。
+
+3.3 末段最小步长防抖（advance_toward）
+easing 尾部每帧位移不足 min_step(取 2px) 时，强制按 min_step 前进、不越过目标、
+到达即提前结束循环。这样最后几像素干脆利落地落位，杜绝逐像素爬行造成的抖动。
+
+3.4 方向解耦
+命令加一个可选参数 expand：
+- expand=true  → 走“弹出”曲线（一套时长与系数）
+- 否则          → 走“隐藏”曲线（另一套时长与系数）
+前端弹出路径传 true，隐藏/拖拽吸附对齐不传。这样两个方向能各自调速。
+
+【四、分段二次缓动的“出系数”方法（照着算即可，任意时间/路程分配通用）】
+
+设动画分成 N 段（本方案 N=3）。已知：
+- 总时长 D（ms）
+- 每段的“时间” d_i（ms）和“该段走完的路程占比” p_i（合计=1）
+
+步骤：
+(1) 归一化各段时长： nd_i = d_i / D  （合计=1，作为 t 的分界点）
+(2) 各段平均速度： avg_i = p_i / nd_i   （单位：路程占比 / 归一化时间）
+(3) 令各分界点速度为 V0(起),V1,...,VN(末)。二次段速度线性，
+    平均速度 = 两端速度均值： (V_{i-1}+V_i)/2 = avg_i
+    → 得到一串方程：V_{i-1}+V_i = 2*avg_i
+(4) 这串方程比未知数少 1 个（有 1 个自由度）。挑一个中间分界速度当自由变量，
+    解出其余全部 V，并满足约束：
+    - 全程单调递减：V0>V1>...>VN
+    - 末端为正：VN>0（保证平稳落位、由最小步长收尾）
+(5) 每段用“已知起点位置 Ps、起点速度 Vs、终点速度 Ve、段时长 d”写出二次式：
+       pos(s) = Ps + Vs*s + ((Ve - Vs) / (2*d)) * s^2      （s 为“段内”归一化时间，从 0 起）
+    其二次项系数 b = (Ve - Vs) / (2*d)。
+    自检：pos(d) 应 = Ps + p_i（该段终点路程占比），首段 Ps=0，末段终点必须=1.0。
+
+【五、当前生效的具体参数（可直接抄，也可按第四节自行重算）】
+
+—— 弹出曲线（expand=true），总时长 280ms ——
+  段1: 0→70% 路程, 80ms
+  段2: 70%→90% 路程, 100ms
+  段3: 90%→100% 路程, 100ms
+  分界速度链: 4.2 → 0.70 → 0.42 → 0.14（单调递减、末端为正）
+  时间分界点: t<80/280, t<180/280
+  ease 分段式：
+    if   t < 80/280 :  4.2*t - 6.125*t^2
+    elif t < 180/280:  u=t-80/280;  0.70 + 0.70*u - 0.392*u^2
+    else            :  w=t-180/280;  0.90 + 0.42*w - 0.392*w^2
+
+—— 隐藏曲线（expand 缺省），总时长 320ms ——
+  段1: 0→70% 路程, 80ms
+  段2: 70%→90% 路程, 100ms
+  段3: 90%→100% 路程, 140ms
+  分界速度链: 4.6 → 1.0 → 0.28 → 0.18
+  时间分界点: t<80/320, t<180/320
+  ease 分段式：
+    if   t < 80/320 :  4.6*t - 7.2*t^2
+    elif t < 180/320:  u=t-80/320;  0.70 + 1.0*u - 1.152*u^2
+    else            :  w=t-180/320;  0.90 + 0.28*w - 0.117551*w^2
+
+【六、参考实现代码（Tauri 2 / Rust 后端）】
+
+#[tauri::command]
+async fn animate_window_position(
+    app: tauri::AppHandle,
+    target_x: i32,
+    target_y: i32,
+    duration_ms: u64,
+    expand: Option<bool>,          // true=弹出曲线，否则=隐藏曲线
+) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("no main window")?;
+    let start_pos = window.outer_position().map_err(|e| e.to_string())?;
+    let dx = target_x - start_pos.x;
+    let dy = target_y - start_pos.y;
+    if dx == 0 && dy == 0 { return Ok(()); }
+
+    #[cfg(target_os = "windows")]
+    unsafe { use windows::Win32::Media::timeBeginPeriod; timeBeginPeriod(1); }
+
+    // 按刷新率算帧间隔（此处示意 60Hz，可用 GetDeviceCaps(VREFRESH) 动态取）
+    let refresh_rate = 60u32;
+    let frame_interval = std::time::Duration::from_secs_f64(1.0 / refresh_rate as f64);
+
+    let start_time = std::time::Instant::now();
+    let duration = std::time::Duration::from_millis(duration_ms);
+    let mut last_x = start_pos.x;
+    let mut last_y = start_pos.y;
+
+    // 末段最小步长防抖：位移不足 min_step 时强制按 min_step 走、不越过目标
+    fn advance_toward(last: i32, desired: i32, target: i32, min_step: i32) -> i32 {
+        if last == target { return target; }
+        let dir = (target - last).signum();
+        let mut next = desired;
+        if (next - last) * dir < min_step { next = last + dir * min_step; }
+        if (target - next) * dir <= 0 { target } else { next }
+    }
+
+    loop {
+        let elapsed = start_time.elapsed();
+        if elapsed >= duration {
+            let _ = window.set_position(tauri::PhysicalPosition::new(target_x, target_y));
+            break;
+        }
+        let t = elapsed.as_secs_f64() / duration.as_secs_f64();
+
+        // 分段二次缓动：弹出/隐藏两套曲线，各段交界处位置与速度连续（无顿挫）
+        let ease = if expand.unwrap_or(false) {
+            // 弹出（总 280ms）
+            if t < 80.0 / 280.0 {
+                4.2 * t - 6.125 * t * t
+            } else if t < 180.0 / 280.0 {
+                let u = t - 80.0 / 280.0;
+                0.70 + 0.70 * u - 0.392 * u * u
+            } else {
+                let w = t - 180.0 / 280.0;
+                0.90 + 0.42 * w - 0.392 * w * w
+            }
+        } else {
+            // 隐藏（总 320ms）
+            if t < 80.0 / 320.0 {
+                4.6 * t - 7.2 * t * t
+            } else if t < 180.0 / 320.0 {
+                let u = t - 80.0 / 320.0;
+                0.70 + 1.0 * u - 1.152 * u * u
+            } else {
+                let w = t - 180.0 / 320.0;
+                0.90 + 0.28 * w - 0.117551 * w * w
+            }
+        };
+
+        let desired_x = start_pos.x + (dx as f64 * ease).round() as i32;
+        let desired_y = start_pos.y + (dy as f64 * ease).round() as i32;
+        let x = advance_toward(last_x, desired_x, target_x, 2);
+        let y = advance_toward(last_y, desired_y, target_y, 2);
+        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        last_x = x;
+        last_y = y;
+        if x == target_x && y == target_y { break; }  // 提前到达就收尾
+
+        // 帧同步：sleep 到本帧末，再自旋补足（此处简化为 sleep frame_interval）
+        std::thread::sleep(frame_interval);
+    }
+    Ok(())
+}
+
+【七、参考实现代码（前端 / TypeScript）】
+
+// 两套时长常量
+const ANIM_DURATION = 320;       // 隐藏
+const SHOW_ANIM_DURATION = 280;  // 弹出
+
+// expand=true 走弹出曲线，否则隐藏
+async function animatePosition(targetX: number, targetY: number,
+                               _forceStartPos?: {x:number;y:number}, expand = false) {
+  await invoke("animate_window_position", {
+    targetX, targetY,
+    durationMs: expand ? SHOW_ANIM_DURATION : ANIM_DURATION,
+    expand,
+  });
+}
+
+// 弹出：先把窗口摆到“隐藏起点”，show()，再调用动画，传 expand=true
+await appWindow.setPosition(new PhysicalPosition(startX, startY));
+await appWindow.show();
+await animatePosition(targetX, targetY, undefined, true);
+
+// 隐藏：先摆到当前吸附位，再滑到“隐藏位”，不传 expand（默认隐藏曲线）
+await appWindow.setPosition(new PhysicalPosition(safeX, safeY));
+await invoke("animate_window_position", { targetX: x, targetY: y, durationMs: ANIM_DURATION });
+
+【八、调参指南（给 agent 的操作说明）】
+- 想让某方向“收尾更慢/更黏”：增大该曲线末段的时长（如弹出末段 100→140ms），
+  然后按第四节重算三段系数（三段总时长变了，全部系数都要重算，不能只改一段）。
+- 想让“起步更冲”：增大段1起点速度 V0（挑更小的自由变量 V1），重算系数。
+- 每次改完务必自检三点：起点=0、各交界点位置连续且速度连续、末段终点=1.0，
+  且速度链单调递减、末端>0。否则会顿挫或抖动。
+- 千万不要用 easeOutExpo/Quint 替换分段二次曲线——会和最小步长防抖冲突产生
+  “猛冲+短促收尾”或末段抖动。
+
+【九、验证方式】
+- Rust：cargo check（编译过即可，注意 PowerShell 会把 cargo 进度输出当错误流，
+  以最后一行 “Finished” 为准）。
+- 前端：npx vue-tsc --noEmit（无输出=通过）。
+- 改了 Rust 必须重启 dev（如 npm run tauri dev），前端常量改动可热更新。
+- 运行时肉眼验收：起步快、末段明显慢、停靠瞬间无左右/上下抖动。
+
+========================================================================
+（完）本效果核心 = 原生端逐帧移动 + 分段二次缓动(速度连续) + 2px最小步长防抖 +
+弹出/隐藏方向解耦。四者缺一不可。
+========================================================================

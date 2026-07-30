@@ -6,5 +6,10 @@ src-tauri/gen/
 .DS_Store
 Thumbs.db
 .mimocode/
+.qoder/
+.zcode/
+.agents/
 _query_*.cjs
+_patch_*
+fix-layout.cjs
 screenshot.png

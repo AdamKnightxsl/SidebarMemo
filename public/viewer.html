@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Preview</title>
+  <!--PAYLOAD-->
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: #111 !important; color: #eee !important;
+      font-family: system-ui, "Segoe UI", sans-serif;
+      overflow: hidden; user-select: none;
+    }
+    #app {
+      width: 100%; height: 100%; display: flex; flex-direction: column;
+      background: #111;
+    }
+    .toolbar {
+      flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between;
+      padding: 0 12px; background: #1a1a1a; border-bottom: 1px solid #333;
+    }
+    .toolbar-left, .toolbar-right, .toolbar-center { display: flex; align-items: center; gap: 8px; }
+    .toolbar-center { flex: 1; justify-content: center; color: #aaa; font-size: 13px; }
+    .btn {
+      height: 32px; min-width: 32px; padding: 0 12px; border: 0; border-radius: 6px;
+      background: #2a2a2a; color: #eee; cursor: pointer; font-size: 14px;
+    }
+    .btn:hover { background: #3a3a3a; }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+    .btn.close-btn { background: #5a1f1f; }
+    .btn.close-btn:hover { background: #c42b1c; }
+    .btn.pin-btn.active { background: #1a4a2a; color: #6f6; }
+    .stage {
+      flex: 1; min-height: 0; position: relative; overflow: hidden; cursor: grab;
+      display: flex; align-items: center; justify-content: center; background: #111;
+    }
+    .stage.dragging { cursor: grabbing; }
+    /*
+     * ★ 核心架构（借鉴 mimo 方案）：
+     * 图片和 OCR 文字在同一个 transform 容器里，
+     * OCR 返回原图坐标，直接作为 CSS left/top/width/height，
+     * 容器的 scale/translate 同时作用于图片和文字，
+     * 所以无论怎么缩放/拖拽，文字始终和图片对齐。
+     * transform-origin: 0 0 → 坐标映射公式极简：visual = coord × scale + translate
+     */
+    #img-wrapper {
+      position: absolute; top: 0; left: 0;
+      transform-origin: 0 0;  /* 从左上角缩放，坐标零误差 */
+      will-change: transform;
+      pointer-events: none; user-select: none;
+      line-height: 0;
+    }
+    #img-wrapper img { max-width: none; max-height: none; display: block; pointer-events: none; }
+    /* OCR 透明文字层：与图片共享 transform，天然对齐 */
+    #ocr-layer {
+      position: absolute; top: 0; left: 0;
+      pointer-events: none; display: none;
+    }
+    /*
+     * 单个 OCR 文字（参考 mimo 方案）：
+     * display:block + overflow:hidden + 原图坐标定位
+     * fontSize = bbox_height × 系数，lineHeight = bbox_height → 垂直居中
+     */
+    .ocr-word {
+      position: absolute;
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      color: transparent;
+      background: transparent;
+      pointer-events: auto;
+      user-select: text; -webkit-user-select: text;
+      cursor: text;
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+      padding: 0;
+      margin: 0;
+      border: none;
+      letter-spacing: 0;
+      word-spacing: 0;
+    }
+    .ocr-word::selection { background: rgba(66, 133, 244, 0.4); color: transparent; }
+    .ocr-word::-moz-selection { background: rgba(66, 133, 244, 0.4); color: transparent; }
+    /* 调试模式：按 D 显示 OCR 文字和边框 */
+    #ocr-layer.debug .ocr-word { outline: 1px solid rgba(255, 0, 0, 0.4); color: rgba(255, 80, 80, 0.7); }
+    .empty { color: #ccc; font-size: 14px; padding: 20px; text-align: center; white-space: pre-wrap; }
+    .hint { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); font-size: 12px; color: #666; z-index: 2; }
+    /* 左右切换按钮：悬浮在窗口两侧垂直居中 */
+    .nav-btn {
+      position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
+      width: 44px; height: 44px; border: 0; border-radius: 50%;
+      background: rgba(42, 42, 42, 0.75); color: #eee;
+      font-size: 24px; line-height: 1; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nav-btn:hover { background: rgba(80, 80, 80, 0.9); }
+    .nav-btn:disabled { opacity: 0.25; cursor: default; }
+    .nav-prev { left: 12px; }
+    .nav-next { right: 12px; }
+    /* OCR 识别状态提示：窗口底部居中 */
+    .ocr-status {
+      position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%);
+      z-index: 3; font-size: 12px; color: #ddd;
+      background: rgba(0, 0, 0, 0.55); padding: 4px 12px; border-radius: 12px;
+      pointer-events: none;
+    }
+    /* 选中文字右键弹出的复制菜单 */
+    .copy-menu {
+      position: absolute; z-index: 10;
+      background: #2a2a2a; border: 1px solid #444; border-radius: 6px;
+      padding: 4px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+    .copy-menu button {
+      border: 0; border-radius: 4px; background: transparent; color: #eee;
+      font-size: 13px; padding: 6px 18px; cursor: pointer; display: block;
+    }
+    .copy-menu button:hover { background: #3a3a3a; }
+    .copy-toast {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      z-index: 11; background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 13px;
+      padding: 8px 16px; border-radius: 8px; pointer-events: none;
+      display: none;
+    }
+  </style>
+</head>
+<body style="background:#111;color:#eee">
+  <div id="app">
+    <div class="toolbar" id="toolbar">
+      <div class="toolbar-left"></div>
+      <div class="toolbar-center" id="counter">0 / 0</div>
+      <div class="toolbar-right">
+        <button class="btn" id="btn-zoom-out">−</button>
+        <button class="btn" id="btn-zoom-reset">100%</button>
+        <button class="btn" id="btn-zoom-in">+</button>
+        <button class="btn" id="btn-fit">Fit</button>
+        <button class="btn" id="btn-max" title="最大化">□</button>
+        <button class="btn pin-btn active" id="btn-pin" title="置顶">📌</button>
+        <button class="btn close-btn" id="btn-close">✕</button>
+      </div>
+    </div>
+    <div class="stage" id="stage">
+      <button class="nav-btn nav-prev" id="btn-prev" title="上一张">‹</button>
+      <button class="nav-btn nav-next" id="btn-next" title="下一张">›</button>
+      <div id="img-wrapper" style="display:none">
+        <img id="img" alt="preview" />
+        <div id="ocr-layer"></div>
+      </div>
+      <div class="empty" id="empty">Viewer loaded. Waiting for image…</div>
+      <div class="ocr-status" id="ocr-status" style="display:none"></div>
+      <div class="copy-menu" id="copy-menu" style="display:none"><button id="copy-btn">复制</button></div>
+      <div class="copy-toast" id="copy-toast" style="display:none">已复制</div>
+      <div class="hint">滚轮缩放 · 拖拽移动 · 选中文字右键复制 · D 调试</div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var emptyEl = document.getElementById("empty");
+      var imgEl = document.getElementById("img");
+      var imgWrapper = document.getElementById("img-wrapper");
+      var ocrLayerEl = document.getElementById("ocr-layer");
+      var stageEl = document.getElementById("stage");
+      var counterEl = document.getElementById("counter");
+      var btnPrev = document.getElementById("btn-prev");
+      var btnNext = document.getElementById("btn-next");
+      var btnZoomIn = document.getElementById("btn-zoom-in");
+      var btnZoomOut = document.getElementById("btn-zoom-out");
+      var btnZoomReset = document.getElementById("btn-zoom-reset");
+      var btnFit = document.getElementById("btn-fit");
+      var btnClose = document.getElementById("btn-close");
+      var btnMax = document.getElementById("btn-max");
+      var ocrStatusEl = document.getElementById("ocr-status");
+
+      var index = 0;
+      var scale = 1;
+      var offsetX = 0, offsetY = 0;
+      var naturalW = 0, naturalH = 0;
+      var dragging = false;
+      var dragStartX = 0, dragStartY = 0, dragOriginX = 0, dragOriginY = 0;
+      var fitMode = true;
+      var invokeFn = null;
+      var appWindow = null;
+      var currentMemoId = "";
+      var currentFilenames = [];
+      var imageCache = {};
+      var ocrCache = {};
+
+      // ── OCR 字体大小系数 ──
+      // mimo 方案：fontSize = bbox_height × K
+      // 回退路径：无 ink 数据时使用（PP-OCR DB 框比文字大，用 0.60）
+      var OCR_FONT_RATIO = 0.60;
+
+      // ── Canvas 墨水度量（解决数字/符号与中文字形留白差异）──
+      // CSS font-size 是 em box 高度，不是墨水高度：中文墨水占 em ~90%，
+      // 数字仅 ~70%，同一 ink_height 下数字需要更大的 font-size。
+      // 用 measureText 的 actualBoundingBox 精确测出每段文字的墨水/em 比例，
+      // 反解 fontSize，比按字符类型猜固定系数（如数字×1.35）精确且全自适应。
+      var measureCanvas = document.createElement("canvas");
+      var measureCtx = measureCanvas.getContext("2d");
+      var OCR_FONT_FAMILY = '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif';
+      var MEASURE_REF_SIZE = 100; // 参考字号，所有指标按 fontSize/100 线性缩放
+
+      function measureInkMetrics(text) {
+        measureCtx.font = MEASURE_REF_SIZE + "px " + OCR_FONT_FAMILY;
+        var m = measureCtx.measureText(text);
+        var fontAsc = (m.fontBoundingBoxAscent != null) ? m.fontBoundingBoxAscent : MEASURE_REF_SIZE * 0.88;
+        var fontDesc = (m.fontBoundingBoxDescent != null) ? m.fontBoundingBoxDescent : MEASURE_REF_SIZE * 0.12;
+        return {
+          inkH: m.actualBoundingBoxAscent + m.actualBoundingBoxDescent, // 墨水高度
+          inkAscent: m.actualBoundingBoxAscent,   // 基线上方墨水高度
+          inkLeft: -m.actualBoundingBoxLeft,      // 墨水左缘相对文本起点的偏移（右为正）
+          inkW: m.actualBoundingBoxRight + m.actualBoundingBoxLeft, // 墨水宽度
+          fontAscent: fontAsc,                    // em box 基线上高（垂直定位用）
+          fontDescent: fontDesc,
+        };
+      }
+
+      function clamp(n, min, max) { return Math.min(max, Math.max(min, n)); }
+
+      function updateCounter() {
+        counterEl.textContent = currentFilenames.length ? (index + 1) + " / " + currentFilenames.length : "0 / 0";
+        // 只有一张图时隐藏两侧切换按钮
+        var showNav = currentFilenames.length > 1;
+        btnPrev.style.display = showNav ? "flex" : "none";
+        btnNext.style.display = showNav ? "flex" : "none";
+      }
+
+      function applyTransform() {
+        imgWrapper.style.transform = "translate(" + offsetX + "px, " + offsetY + "px) scale(" + scale + ")";
+        btnZoomReset.textContent = Math.round(scale * 100) + "%";
+      }
+
+      // ★ fitToWindow（mimo 方案）：计算居中偏移
+      // transform-origin: 0 0 时，visual_pos = coord × scale + translate
+      // 居中公式：translateX = (viewportW - naturalW × scale) / 2
+      function fitToWindow() {
+        if (!naturalW || !naturalH) return;
+        var rect = stageEl.getBoundingClientRect();
+        var pad = 24;
+        scale = clamp(Math.min((rect.width - pad) / naturalW, (rect.height - pad) / naturalH, 1), 0.05, 8);
+        offsetX = (rect.width - naturalW * scale) / 2;
+        offsetY = (rect.height - naturalH * scale) / 2;
+        fitMode = true;
+        applyTransform();
+      }
+
+      // ── 图片切换 ──
+      function showImage(i) {
+        if (!currentFilenames.length) {
+          imgWrapper.style.display = "none";
+          emptyEl.style.display = "block";
+          emptyEl.textContent = "没有可预览的图片";
+          updateCounter();
+          return;
+        }
+        index = ((i % currentFilenames.length) + currentFilenames.length) % currentFilenames.length;
+        updateCounter();
+        emptyEl.style.display = "block";
+        emptyEl.textContent = "加载中…";
+        imgWrapper.style.display = "none";
+        clearOcr();
+
+        var filename = currentFilenames[index];
+        var cacheKey = currentMemoId + "/" + filename;
+        if (imageCache[cacheKey]) { renderImage(imageCache[cacheKey]); return; }
+        if (!invokeFn) return;
+        invokeFn("get_image_base64", { memoId: currentMemoId, filename: filename })
+          .then(function (b64) {
+            var ext = (filename.split(".").pop() || "png").toLowerCase();
+            var mime = (ext === "jpg" || ext === "jpeg") ? "image/jpeg" : "image/" + ext;
+            var dataUri = "data:" + mime + ";base64," + b64;
+            imageCache[cacheKey] = dataUri;
+            if (currentFilenames[index] === filename) renderImage(dataUri);
+          })
+          .catch(function (err) {
+            emptyEl.style.display = "block";
+            emptyEl.textContent = "图片加载失败: " + String(err);
+            imgWrapper.style.display = "none";
+          });
+      }
+
+      function renderImage(src) {
+        emptyEl.style.display = "none";
+        imgWrapper.style.display = "block";
+        imgEl.onload = function () {
+          naturalW = imgEl.naturalWidth || 1;
+          naturalH = imgEl.naturalHeight || 1;
+          // ★ 关键：显式设置图片为原始像素尺寸（mimo 方案）
+          // OCR 坐标基于原图像素，图片必须也在原图像素空间渲染
+          imgEl.style.width = naturalW + "px";
+          imgEl.style.height = naturalH + "px";
+          ocrLayerEl.style.width = naturalW + "px";
+          ocrLayerEl.style.height = naturalH + "px";
+          fitToWindow();
+          triggerOcr();
+        };
+        imgEl.onerror = function () {
+          emptyEl.style.display = "block";
+          emptyEl.textContent = "图片渲染失败";
+          imgWrapper.style.display = "none";
+        };
+        imgEl.src = src;
+      }
+
+      // ── OCR ──
+      // 底部识别状态提示：null 隐藏，字符串显示对应文案
+      function setOcrStatus(text) {
+        if (text) {
+          ocrStatusEl.textContent = text;
+          ocrStatusEl.style.display = "block";
+        } else {
+          ocrStatusEl.style.display = "none";
+        }
+      }
+
+      // 识别结果为空（图片没有文字）时不能报"已识别"
+      function statusForResult(result) {
+        return (result && result.words && result.words.length) ? "文字已识别" : "未识别到文字";
+      }
+
+      function clearOcr() {
+        ocrLayerEl.innerHTML = "";
+        ocrLayerEl.style.display = "none";
+        setOcrStatus(null);
+        hideCopyMenu();
+        copyToastEl.style.display = "none";
+        if (copyToastTimer) { clearTimeout(copyToastTimer); copyToastTimer = null; }
+      }
+
+      function triggerOcr() {
+        if (!invokeFn || !currentFilenames.length) return;
+        var filename = currentFilenames[index];
+        var cacheKey = currentMemoId + "/" + filename;
+        if (ocrCache[cacheKey]) {
+          renderOcrLayer(ocrCache[cacheKey]);
+          setOcrStatus(statusForResult(ocrCache[cacheKey]));
+          return;
+        }
+        var capturedIndex = index;
+        setOcrStatus("文字正在识别中…");
+        invokeFn("ocr_image", { memoId: currentMemoId, filename: filename })
+          .then(function (result) {
+            ocrCache[cacheKey] = result;
+            if (capturedIndex === index) {
+              renderOcrLayer(result);
+              setOcrStatus(statusForResult(result));
+            }
+          })
+          .catch(function (err) {
+            console.warn("OCR failed:", err);
+            if (capturedIndex === index) setOcrStatus("文字识别失败");
+          });
+      }
+
+      /**
+       * 渲染 OCR 透明文字层（mimo 方案）
+       *
+       * 核心原理：
+       * - OCR 返回原图像素坐标 → 直接作为 CSS left/top/width/height
+       * - 图片和文字在同一个 transform 容器 → 缩放/拖拽自动同步
+       * - fontSize = bbox_height × OCR_FONT_RATIO
+       * - lineHeight = bbox_height → 文字在 bbox 内垂直居中
+       * - 不需要任何坐标转换！
+       */
+      function renderOcrLayer(result) {
+        ocrLayerEl.innerHTML = "";
+        if (!result || !result.words || !result.words.length) {
+          ocrLayerEl.style.display = "none";
+          return;
+        }
+
+        // 按阅读顺序排序（先上后下，同行先左后右）
+        var words = result.words.slice().sort(function (a, b) {
+          var overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+          var minH = Math.min(a.height, b.height);
+          if (overlapY > minH * 0.5) return a.x - b.x;
+          return a.y - b.y;
+        });
+
+        ocrLayerEl.style.display = "block";
+
+        var inkCount = 0;
+        words.forEach(function (word) {
+          if (!word.text || word.height < 1 || word.width < 1) return;
+
+          var span = document.createElement("span");
+          span.className = "ocr-word";
+          span.textContent = word.text;
+          // ★ 优先使用真实墨水范围（ink bbox），无则回退到 DB 检测框
+          var hasInk = word.ink_height != null && word.ink_width != null;
+          var met = hasInk ? measureInkMetrics(word.text) : null;
+
+          if (hasInk && met && met.inkH > 1) {
+            inkCount++;
+            // ── 墨水级精确渲染 ──
+            // 1. 反解 fontSize：让渲染墨水高度 = 原图墨水高度
+            //    （数字墨水占 em 比例低 → 自动得到更大的 fontSize）
+            var fontSize = word.ink_height * (MEASURE_REF_SIZE / met.inkH);
+            var s = fontSize / MEASURE_REF_SIZE; // 度量缩放系数
+            // 2. 垂直定位：line-height = fontSize 时，
+            //    span 内基线位置 = 半行距 + fontAscent，墨水顶 = 基线 - inkAscent
+            var halfLeading = (fontSize - (met.fontAscent + met.fontDescent) * s) / 2;
+            var inkTopInSpan = halfLeading + (met.fontAscent - met.inkAscent) * s;
+            // 3. 水平定位：补偿首字符左侧字形留白（数字/标点留白多于中文）
+            span.style.left = (word.ink_x - met.inkLeft * s) + "px";
+            span.style.top = (word.ink_y - inkTopInSpan) + "px";
+            span.style.fontSize = fontSize + "px";
+            span.style.lineHeight = fontSize + "px";
+            span.style.height = fontSize + "px";
+            // 4. 宽度匹配：letter-spacing 把渲染墨水宽度拉伸/压缩到原图墨水宽度
+            var chars = Array.from(word.text);
+            var renderedInkW = met.inkW * s;
+            if (chars.length > 1 && renderedInkW > 1) {
+              var spacing = (word.ink_width - renderedInkW) / (chars.length - 1);
+              spacing = clamp(spacing, -fontSize * 0.08, fontSize * 0.8);
+              span.style.letterSpacing = spacing + "px";
+            }
+            // 宽度略留余量容纳首字符偏移，overflow:hidden 裁掉尾部 spacing 空白
+            span.style.width = (word.ink_width + met.inkLeft * s + 2) + "px";
+          } else {
+            // ── 回退路径：DB 检测框 + 经验系数（无 ink 数据 / 度量失败）──
+            span.style.left = word.x + "px";
+            span.style.top = word.y + "px";
+            span.style.width = word.width + "px";
+            span.style.height = word.height + "px";
+            span.style.fontSize = Math.max(10, word.height * OCR_FONT_RATIO) + "px";
+            span.style.lineHeight = word.height + "px";
+          }
+          ocrLayerEl.appendChild(span);
+        });
+
+        console.log("[OCR] 渲染", words.length, "个文字区域，其中", inkCount, "个使用墨水度量路径 (fallbackRatio=" + OCR_FONT_RATIO + ")");
+      }
+
+      // ── 鼠标交互：拖拽平移（点击 OCR 文字时不触发，让浏览器处理文字选择）──
+      stageEl.addEventListener("mousedown", function (e) {
+        // 复制菜单内的点击由菜单自己处理
+        if (e.target.closest && e.target.closest(".copy-menu")) return;
+        if (e.button === 0) hideCopyMenu();
+        if (e.button !== 0 || !currentFilenames.length) return;
+        // 点击 OCR 文字 → 不阻止默认行为，让浏览器处理文字选择
+        if (e.target.classList && e.target.classList.contains("ocr-word")) return;
+        // 点击两侧切换按钮 → 不触发拖拽
+        if (e.target.closest && e.target.closest(".nav-btn")) return;
+        e.preventDefault();
+        dragging = true;
+        stageEl.classList.add("dragging");
+        dragStartX = e.clientX; dragStartY = e.clientY;
+        dragOriginX = offsetX; dragOriginY = offsetY;
+      });
+      window.addEventListener("mousemove", function (e) {
+        if (!dragging) return;
+        offsetX = dragOriginX + (e.clientX - dragStartX);
+        offsetY = dragOriginY + (e.clientY - dragStartY);
+        fitMode = false;
+        applyTransform();
+      });
+      window.addEventListener("mouseup", function () {
+        dragging = false;
+        stageEl.classList.remove("dragging");
+      });
+
+      // ── 滚轮缩放（mimo 方案：以鼠标为中心）──
+      stageEl.addEventListener("wheel", function (e) {
+        e.preventDefault();
+        if (!currentFilenames.length) return;
+        hideCopyMenu();
+        fitMode = false;
+        var newScale = clamp(scale * (e.deltaY > 0 ? 1 / 1.12 : 1.12), 0.05, 8);
+        // 以鼠标为中心缩放：缩放前后鼠标指向的点位置不变
+        var rect = stageEl.getBoundingClientRect();
+        var mouseX = e.clientX - rect.left;
+        var mouseY = e.clientY - rect.top;
+        var ratio = newScale / scale;
+        offsetX = mouseX - (mouseX - offsetX) * ratio;
+        offsetY = mouseY - (mouseY - offsetY) * ratio;
+        scale = newScale;
+        applyTransform();
+      }, { passive: false });
+
+      // ── 键盘 ──
+      window.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+          // 复制菜单打开时，Esc 只关菜单不关窗口
+          if (copyMenuEl.style.display !== "none") { hideCopyMenu(); return; }
+          closeViewer();
+        }
+        else if (e.key === "ArrowLeft") showImage(index - 1);
+        else if (e.key === "ArrowRight") showImage(index + 1);
+        else if (e.key === "d" || e.key === "D") ocrLayerEl.classList.toggle("debug");
+        else if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+          // Ctrl+A 全选 OCR 文字
+          var spans = ocrLayerEl.querySelectorAll(".ocr-word");
+          if (spans.length) {
+            e.preventDefault();
+            var range = document.createRange();
+            range.setStartBefore(spans[0]);
+            range.setEndAfter(spans[spans.length - 1]);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      });
+
+      // ── 选中文字右键 → 弹出复制菜单 ──
+      var copyMenuEl = document.getElementById("copy-menu");
+      var copyBtnEl = document.getElementById("copy-btn");
+      var copyToastEl = document.getElementById("copy-toast");
+      var pendingCopyText = "";
+      var copyToastTimer = null;
+
+      function hideCopyMenu() {
+        copyMenuEl.style.display = "none";
+      }
+
+      function showCopyToast() {
+        copyToastEl.style.display = "block";
+        if (copyToastTimer) clearTimeout(copyToastTimer);
+        copyToastTimer = setTimeout(function () { copyToastEl.style.display = "none"; }, 1200);
+      }
+
+      // clipboard API 不可用时的兜底：临时 textarea + execCommand
+      function fallbackCopy(text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (err) {}
+        document.body.removeChild(ta);
+      }
+
+      stageEl.addEventListener("contextmenu", function (e) {
+        e.preventDefault();
+        var sel = window.getSelection();
+        var text = sel ? sel.toString().trim() : "";
+        if (!text) { hideCopyMenu(); return; }
+        pendingCopyText = text;
+        // 在鼠标位置显示菜单，并钳制在舞台范围内
+        var rect = stageEl.getBoundingClientRect();
+        copyMenuEl.style.display = "block";
+        var x = clamp(e.clientX - rect.left, 0, Math.max(0, rect.width - copyMenuEl.offsetWidth - 4));
+        var y = clamp(e.clientY - rect.top, 0, Math.max(0, rect.height - copyMenuEl.offsetHeight - 4));
+        copyMenuEl.style.left = x + "px";
+        copyMenuEl.style.top = y + "px";
+      });
+
+      // 按住菜单不清除文字选区
+      copyMenuEl.addEventListener("mousedown", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+
+      copyBtnEl.onclick = function () {
+        var text = pendingCopyText;
+        hideCopyMenu();
+        if (!text) return;
+        try {
+          navigator.clipboard.writeText(text)
+            .then(showCopyToast)
+            .catch(function () { fallbackCopy(text); showCopyToast(); });
+        } catch (err) {
+          fallbackCopy(text);
+          showCopyToast();
+        }
+      };
+
+      // ── 工具栏 ──
+      btnClose.onclick = closeViewer;
+
+      // 最大化/还原（窗口 maximizable 与 allow-maximize/unmaximize 权限已在配置中开启）
+      btnMax.onclick = function () {
+        try {
+          var w = window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrentWindow();
+          if (!w) return;
+          w.isMaximized()
+            .then(function (m) { return m ? w.unmaximize() : w.maximize(); })
+            .then(function () { return w.isMaximized(); })
+            .then(function (m) {
+              btnMax.textContent = m ? "❐" : "□";
+              btnMax.title = m ? "还原" : "最大化";
+            })
+            .catch(function (err) { console.error("maximize failed:", err); });
+        } catch (err) { console.error("maximize failed:", err); }
+      };
+
+      var btnPin = document.getElementById("btn-pin");
+      var isPinned = true;
+      btnPin.onclick = function () {
+        isPinned = !isPinned;
+        btnPin.classList.toggle("active", isPinned);
+        try {
+          var w = window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrentWindow();
+          if (w && w.setAlwaysOnTop) w.setAlwaysOnTop(isPinned);
+        } catch (err) { console.error("setAlwaysOnTop failed:", err); }
+      };
+
+      var toolbarEl = document.getElementById("toolbar");
+      toolbarEl.addEventListener("mousedown", function (e) {
+        if (e.target.closest("button")) return;
+        e.preventDefault();
+        try {
+          var w = window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrentWindow();
+          if (w && w.startDragging) w.startDragging();
+        } catch (err) {}
+      });
+      btnPrev.onclick = function () { showImage(index - 1); };
+      btnNext.onclick = function () { showImage(index + 1); };
+      btnZoomIn.onclick = function () { fitMode = false; scale = clamp(scale * 1.2, 0.05, 8); applyTransform(); };
+      btnZoomOut.onclick = function () { fitMode = false; scale = clamp(scale / 1.2, 0.05, 8); applyTransform(); };
+      btnZoomReset.onclick = function () {
+        fitMode = false;
+        scale = 1;
+        var rect = stageEl.getBoundingClientRect();
+        offsetX = (rect.width - naturalW) / 2;
+        offsetY = (rect.height - naturalH) / 2;
+        applyTransform();
+      };
+      btnFit.onclick = fitToWindow;
+      window.addEventListener("resize", function () { if (fitMode) fitToWindow(); });
+
+      // ── 窗口关闭 ──
+      async function closeViewer() {
+        try { if (invokeFn) { await invokeFn("close_image_viewer"); return; } } catch (e) {}
+        try {
+          if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+            await window.__TAURI__.core.invoke("close_image_viewer"); return;
+          }
+        } catch (e) {}
+        try { if (appWindow && appWindow.destroy) { await appWindow.destroy(); return; } } catch (e) {}
+        try { if (appWindow && appWindow.close) { await appWindow.close(); return; } } catch (e) {}
+        try { window.close(); } catch (e) {}
+      }
+
+      // ── 数据接收 ──
+      function setPayload(payload) {
+        if (!payload) return;
+        currentMemoId = payload.memo_id || payload.memoId || "";
+        currentFilenames = Array.isArray(payload.filenames) ? payload.filenames.filter(Boolean) : [];
+        imageCache = {};
+        index = clamp(payload.index || 0, 0, Math.max(0, currentFilenames.length - 1));
+        showImage(index);
+        if (currentFilenames.length > 1 && invokeFn) {
+          var nextIdx = (index + 1) % currentFilenames.length;
+          var prevIdx = (index - 1 + currentFilenames.length) % currentFilenames.length;
+          [nextIdx, prevIdx].forEach(function (i) {
+            var fn = currentFilenames[i];
+            var key = currentMemoId + "/" + fn;
+            if (!imageCache[key]) {
+              invokeFn("get_image_base64", { memoId: currentMemoId, filename: fn })
+                .then(function (b64) {
+                  var ext = (fn.split(".").pop() || "png").toLowerCase();
+                  var mime = (ext === "jpg" || ext === "jpeg") ? "image/jpeg" : "image/" + ext;
+                  imageCache[key] = "data:" + mime + ";base64," + b64;
+                }).catch(function () {});
+            }
+          });
+        }
+      }
+
+      if (window.__VIEWER_PAYLOAD__) setPayload(window.__VIEWER_PAYLOAD__);
+
+      (function waitTauri() {
+        var t = window.__TAURI__;
+        if (t && t.core && t.core.invoke) {
+          invokeFn = t.core.invoke.bind(t.core);
+          try { if (t.window && t.window.getCurrentWindow) appWindow = t.window.getCurrentWindow(); } catch (e) {}
+          if (!window.__VIEWER_PAYLOAD__) {
+            invokeFn("get_viewer_payload").then(function (p) { if (p) setPayload(p); }).catch(function () {});
+          }
+          if (t.event && t.event.listen) {
+            t.event.listen("viewer-payload", function (ev) { setPayload(ev.payload); });
+          }
+          return;
+        }
+        setTimeout(waitTauri, 100);
+      })();
+    })();
+  </script>
+</body>
+</html>

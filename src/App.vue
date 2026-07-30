@@ -15,7 +15,7 @@ import { useUpdater } from "./composables/useUpdater";
 const appContainer = ref<HTMLElement | null>(null);
 const toastRef = ref<InstanceType<typeof Toast> | null>(null);
 const memoListRef = ref<InstanceType<typeof MemoListView> | null>(null);
-const { snappedEdge, isHidden, showFromEdge, animateToTray } = useWindowSnap();
+const { snappedEdge, isHidden, showFromEdge, animateToTray, closeToTray } = useWindowSnap();
 const { checkForUpdates } = useUpdater();
 
 function showToast(msg: string, duration = 0, onClick?: () => void) {
@@ -33,6 +33,7 @@ function shakeWindow() {
 
 let positionSaveTimer: ReturnType<typeof setInterval> | null = null;
 let unlistenReminder: (() => void) | null = null;
+let unlistenQuickNote: (() => void) | null = null;
 
 const currentView = ref<"memos" | "today" | "yesterday" | "day_before_yesterday" | "trash" | "settings">("memos");
 const { loadMemos, dateFilter } = useMemos();
@@ -116,7 +117,7 @@ async function loadNotifySound() {
     const arrayBuf = await resp.arrayBuffer();
     const ctx = getAudioContext();
     notifyBuffer = await ctx.decodeAudioData(arrayBuf);
-  } catch (_) {}
+  } catch (e) { console.error(e); }
 }
 
 function playBeep() {
@@ -131,48 +132,24 @@ function playBeep() {
       source.connect(ctx.destination);
       source.start();
     }
-  } catch (_) {}
+  } catch (e) { console.error(e); }
 }
 
 async function showReminder(memo: Memo) {
   if (isHidden.value) {
     await showFromEdge(1000);
   }
-  const content = memo.content.length > 40 ? memo.content.slice(0, 40) + "..." : memo.content;
+  // 剥离 markdown 标记用于 toast 显示
+  const plainText = memo.content.replace(/[*#_~`>\[\]!()]/g, '').trim();
+  const content = plainText.length > 40 ? plainText.slice(0, 40) + "..." : plainText;
   showToast("提醒：" + content, 0, () => {
     currentView.value = "memos";
     dateFilter.value = "all";
     nextTick(() => memoListRef.value?.scrollToMemo(memo.id));
   });
   shakeWindow();
+  playBeep();
   await loadMemos();
-
-  if (!("Notification" in window)) return;
-  let permission = Notification.permission;
-  if (permission === "default") {
-    permission = await Notification.requestPermission();
-  }
-  if (permission !== "granted") {
-    playBeep();
-    return;
-  }
-
-  const notification = new Notification("备忘录提醒", {
-    body: content,
-    tag: "memo-reminder-" + memo.id,
-    silent: false,
-    requireInteraction: true,
-  });
-  notification.onclick = async () => {
-    currentView.value = "memos";
-    dateFilter.value = "all";
-    try {
-      await invoke("show_main_window");
-    } catch (e) {
-      showToast(String(e));
-    }
-    nextTick(() => memoListRef.value?.scrollToMemo(memo.id));
-  };
 }
 
 onMounted(async () => {
@@ -181,7 +158,7 @@ onMounted(async () => {
     showGuide.value = true;
   }
   function resumeAudio() {
-    try { getAudioContext().resume(); } catch (_) {}
+    try { getAudioContext().resume(); } catch (e) { console.error(e); }
     document.removeEventListener("click", resumeAudio);
     document.removeEventListener("keydown", resumeAudio);
   }
@@ -195,6 +172,10 @@ onMounted(async () => {
   unlistenReminder = await getCurrentWindow().listen<Memo>("memo-reminder-due", async ({ payload }) => {
     await showReminder(payload);
   });
+  // 监听快捷便签保存事件 → 刷新列表
+  unlistenQuickNote = await getCurrentWindow().listen<string>("quick-note-saved", async () => {
+    await loadMemos();
+  });
   try {
     const s = await invoke<{ always_on_top: boolean }>("get_settings");
     isAlwaysOnTop.value = s.always_on_top;
@@ -206,7 +187,7 @@ onMounted(async () => {
   } catch (e) {
     showToast(String(e));
   }
-  checkForUpdates().catch(() => {});
+  checkForUpdates();
   positionSaveTimer = setInterval(() => {
     invoke("save_current_position");
   }, 5000);
@@ -215,6 +196,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (positionSaveTimer) clearInterval(positionSaveTimer);
   unlistenReminder?.();
+  unlistenQuickNote?.();
 });
 
 async function minimizeWindow() {
@@ -226,14 +208,11 @@ async function toggleAlwaysOnTop() {
   try {
     const result = await invoke<boolean>("toggle_always_on_top");
     isAlwaysOnTop.value = result;
-  } catch (e) {
-    showToast(String(e));
-  }
-}
-
-async function closeToTray() {
-  try {
-    await invoke("close_to_tray");
+    // 吸附期间内部始终保持置顶（保障隐藏/弹出动画零闪烁，见 useWindowSnap 的 Z 序策略）：
+    // 取消置顶时 Rust 已直接拆掉窗口置顶，这里重新断言；设置值已写入后端，退出吸附时会按新设置恢复
+    if (!result && snappedEdge.value) {
+      await getCurrentWindow().setAlwaysOnTop(true);
+    }
   } catch (e) {
     showToast(String(e));
   }

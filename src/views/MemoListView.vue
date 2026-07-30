@@ -1,26 +1,71 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, watchEffect } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, watchEffect, provide } from "vue";
 import SearchBar from "../components/SearchBar.vue";
 import MemoCard from "../components/MemoCard.vue";
 import QuickInput from "../components/QuickInput.vue";
 import { useMemos } from "../composables/useMemos";
 import { useSettings } from "../composables/useSettings";
+import { marked } from "marked";
+import { matchesQuery, highlightInHtml } from "../composables/pinyinSearch";
+import { sanitizeHtml } from "../composables/sanitizeHtml";
+import { isComposing } from "../utils";
 import { selectedIndex } from "../composables/useKeyboard";
 
 const { pinnedMemos, unpinnedMemos, addMemo, searchQuery, dateFilter, trashedMemos, loadTrashedMemos, restoreFromTrash, permanentDeleteMemo, clearTrash } = useMemos();
 const { settings } = useSettings();
+
+// 向 MemoCard 提供 searchQuery，用于搜索高亮
+provide('searchQuery', searchQuery);
 
 const trashSearch = ref("");
 const searchRef = ref<InstanceType<typeof SearchBar> | null>(null);
 const inputRef = ref<InstanceType<typeof QuickInput> | null>(null);
 const normalListRef = ref<HTMLElement | null>(null);
 const trashListRef = ref<HTMLElement | null>(null);
+const normalTrackRef = ref<HTMLElement | null>(null);
+const trashTrackRef = ref<HTMLElement | null>(null);
+const normalThumbRef = ref<HTMLElement | null>(null);
+const trashThumbRef = ref<HTMLElement | null>(null);
 
 const filteredTrashed = computed(() => {
-  const q = trashSearch.value.toLowerCase().trim();
+  const q = trashSearch.value.trim();
   if (!q) return trashedMemos.value;
-  return trashedMemos.value.filter((m) => m.content.toLowerCase().includes(q));
+  return trashedMemos.value.filter((m) => matchesQuery(m.content, q));
 });
+
+function renderTrashContent(content: string): string {
+  const html = marked.parse(content || '') as string;
+  const q = trashSearch.value.trim();
+  const finalHtml = q ? highlightInHtml(html, q) : html;
+  // 回收站内容同样经 v-html 注入，必须净化
+  return sanitizeHtml(finalHtml);
+}
+
+// ── 自定义滚动条 ──
+let scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+function setupScrollbar(list: HTMLElement, track: HTMLElement, thumb: HTMLElement) {
+  function updateThumb() {
+    const { scrollTop, scrollHeight, clientHeight } = list;
+    if (scrollHeight <= clientHeight) {
+      track.classList.remove("visible");
+      return;
+    }
+    const ratio = clientHeight / scrollHeight;
+    const thumbH = Math.max(20, clientHeight * ratio);
+    const thumbTop = (scrollTop / (scrollHeight - clientHeight)) * (clientHeight - thumbH);
+    thumb.style.height = thumbH + "px";
+    thumb.style.top = thumbTop + "px";
+    track.classList.add("visible");
+    if (scrollbarHideTimer) clearTimeout(scrollbarHideTimer);
+    scrollbarHideTimer = setTimeout(() => {
+      track.classList.remove("visible");
+    }, 800);
+  }
+
+  list.addEventListener("scroll", updateThumb);
+  requestAnimationFrame(updateThumb);
+}
 
 const trashedDeletingId = ref<string | null>(null);
 function handlePermanentDelete(id: string) {
@@ -64,6 +109,8 @@ function editSelected() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  // 输入法组词中的按键不参与列表快捷键导航
+  if (isComposing(e)) return;
   const tag = (e.target as HTMLElement).tagName;
   const isEditing = tag === "TEXTAREA" || tag === "INPUT";
 
@@ -102,6 +149,9 @@ watchEffect(() => {
   const list = normalListRef.value || trashListRef.value;
   if (!list) return;
   setupScrollAnimation(list);
+  const track = normalTrackRef.value || trashTrackRef.value;
+  const thumb = normalThumbRef.value || trashThumbRef.value;
+  if (track && thumb) setupScrollbar(list, track, thumb);
 });
 
 function setupScrollAnimation(list: HTMLElement) {
@@ -195,11 +245,11 @@ watch(() => settings.value.skin, () => {
 <template>
   <!-- 垃圾桶视图 -->
   <template v-if="dateFilter === 'trash'">
-    <SearchBar v-model="trashSearch" />
+    <SearchBar v-model="trashSearch" :count="filteredTrashed.length" />
     <div class="memo-list-wrapper">
       <div class="memo-list-gradient-top"></div>
       <div class="memo-list-gradient-bottom"></div>
-      <div class="memo-list" ref="trashListRef">
+      <div class="memo-list scrollbar-hide" ref="trashListRef">
         <div class="shadow-spacer"></div>
         <template v-if="filteredTrashed.length > 0">
           <div
@@ -227,13 +277,16 @@ watch(() => settings.value.skin, () => {
                 ><span style="font-size: 20px;">×</span></button>
               </div>
             </div>
-            <div class="memo-content" style="max-height: none; -webkit-line-clamp: unset; display: block; overflow: visible;">{{ memo.content }}</div>
+            <div class="memo-content markdown-body" style="max-height: none; -webkit-line-clamp: unset; display: block; overflow: visible;" v-html="renderTrashContent(memo.content)"></div>
           </div>
         </template>
         <div v-if="trashedMemos.length === 0" class="empty-state">
           <div class="empty-icon">🗑️</div>
           <div class="empty-text">垃圾桶是空的</div>
         </div>
+      </div>
+      <div class="memo-scroll-track" ref="trashTrackRef">
+        <div class="memo-scroll-thumb" ref="trashThumbRef"></div>
       </div>
     </div>
     <div v-if="trashedMemos.length > 0" style="padding: 8px 12px; display: flex; justify-content: flex-end;">
@@ -252,11 +305,11 @@ watch(() => settings.value.skin, () => {
 
   <!-- 正常视图 -->
   <template v-else>
-    <SearchBar ref="searchRef" v-model="searchQuery" />
+    <SearchBar ref="searchRef" v-model="searchQuery" :count="allMemos.length" />
     <div class="memo-list-wrapper">
       <div class="memo-list-gradient-top"></div>
       <div class="memo-list-gradient-bottom"></div>
-      <div class="memo-list" ref="normalListRef">
+      <div class="memo-list scrollbar-hide" ref="normalListRef">
         <div class="shadow-spacer"></div>
         <template v-if="pinnedMemos.length > 0">
           <MemoCard
@@ -283,6 +336,9 @@ watch(() => settings.value.skin, () => {
           <div class="empty-icon">📝</div>
           <div class="empty-text">输入内容开始记录</div>
         </div>
+      </div>
+      <div class="memo-scroll-track" ref="normalTrackRef">
+        <div class="memo-scroll-thumb" ref="normalThumbRef"></div>
       </div>
     </div>
     <QuickInput ref="inputRef" @submit="handleAdd" />

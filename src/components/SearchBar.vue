@@ -2,6 +2,7 @@
 import { ref } from "vue";
 
 const model = defineModel<string>({ default: "" });
+const props = defineProps<{ count?: number }>();
 const input = ref<HTMLInputElement | null>(null);
 
 function focus() {
@@ -20,6 +21,7 @@ defineExpose({ focus });
         type="text"
         placeholder="搜索备忘..."
       />
+      <span v-if="props.count !== undefined" class="search-count">{{ props.count }} 条</span>
       <button v-if="model" class="search-clear" @click="model = ''">✕</button>
     </div>
   </div>

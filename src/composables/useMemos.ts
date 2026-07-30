@@ -1,5 +1,6 @@
 import { ref, computed, inject } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { matchesQuery } from "./pinyinSearch";
 
 export type ShowToastFn = (msg: string, duration?: number) => void;
 
@@ -57,19 +58,19 @@ export function useMemos() {
   const toast = inject<ShowToastFn>("showToast", () => {});
 
   const pinnedMemos = computed(() => {
-    const q = searchQuery.value.toLowerCase().trim();
+    const q = searchQuery.value.trim();
     let list = memos.value.filter((m) => m.is_pinned && matchDateFilter(m));
     if (q) {
-      list = list.filter((m) => m.content.toLowerCase().includes(q));
+      list = list.filter((m) => matchesQuery(m.content, q));
     }
     return list;
   });
 
   const unpinnedMemos = computed(() => {
-    const q = searchQuery.value.toLowerCase().trim();
+    const q = searchQuery.value.trim();
     let list = memos.value.filter((m) => !m.is_pinned && matchDateFilter(m));
     if (q) {
-      list = list.filter((m) => m.content.toLowerCase().includes(q));
+      list = list.filter((m) => matchesQuery(m.content, q));
     }
     return list;
   });
@@ -154,6 +155,11 @@ export function useMemos() {
   async function reorderMemos(ids: string[]) {
     try {
       await invoke("reorder_memos", { ids });
+      // 同步前端 sort_order，避免与库不一致
+      ids.forEach((id, i) => {
+        const m = memos.value.find((m) => m.id === id);
+        if (m) m.sort_order = i;
+      });
     } catch (e) {
       toast(String(e));
     }
@@ -256,6 +262,16 @@ export function useMemos() {
     }
   }
 
+  async function getImageAssetUrl(memoId: string, filename: string): Promise<string | null> {
+    try {
+      const path = await invoke<string>("get_image_path", { memoId, filename });
+      return convertFileSrc(path);
+    } catch (e) {
+      toast(String(e));
+      return null;
+    }
+  }
+
   return {
     memos,
     trashedMemos,
@@ -281,5 +297,6 @@ export function useMemos() {
     saveImage,
     deleteImage,
     getImageBase64,
+    getImageAssetUrl,
   };
 }

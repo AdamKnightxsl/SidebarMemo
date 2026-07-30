@@ -2,8 +2,9 @@
 import { ref, onMounted, onBeforeUnmount, computed, inject } from "vue";
 import { useSettings } from "../composables/useSettings";
 import { useUpdater } from "../composables/useUpdater";
+import { version as appVersion } from "../../package.json";
 
-const { settings, saveShortcut, saveTheme, saveSkin } = useSettings();
+const { settings, saveShortcut, saveTheme, saveSkin, saveNoteShortcut } = useSettings();
 const openGuide = inject<() => void>("showGuide", () => {});
 const { updating, updateAvailable, updateVersion, downloadProgress, lastError, checkForUpdates, installUpdate } = useUpdater();
 const checking = ref(false);
@@ -13,6 +14,10 @@ let statusTimer: ReturnType<typeof setTimeout> | null = null;
 const recording = ref(false);
 const recordedKeys = ref<string[]>([]);
 const displayShortcut = ref("");
+
+const recordingNote = ref(false);
+const recordedNoteKeys = ref<string[]>([]);
+const displayNoteShortcut = ref("");
 
 const isDark = computed(() => settings.value.theme === "dark");
 
@@ -27,6 +32,7 @@ const skins = [
 
 function updateDisplay() {
   displayShortcut.value = (settings.value as any).shortcut;
+  displayNoteShortcut.value = settings.value.note_shortcut || "Alt+N";
 }
 
 function toggleTheme() {
@@ -76,10 +82,17 @@ async function handleCheckUpdate() {
 function startRecording() {
   recording.value = true;
   recordedKeys.value = [];
+  recordingNote.value = false;
+}
+
+function startRecordingNote() {
+  recordingNote.value = true;
+  recordedNoteKeys.value = [];
+  recording.value = false;
 }
 
 function handleKeyDown(e: KeyboardEvent) {
-  if (!recording.value) return;
+  if (!recording.value && !recordingNote.value) return;
   e.preventDefault();
   e.stopPropagation();
 
@@ -95,18 +108,27 @@ function handleKeyDown(e: KeyboardEvent) {
   else if (e.code.startsWith("Digit")) key = e.code.replace("Digit", "");
   else if (e.code === "Escape") {
     recording.value = false;
+    recordingNote.value = false;
     return;
   }
 
   const isModifier = ["Control", "Alt", "Shift", "Meta"].includes(e.key);
   if (!isModifier) {
     const combo = [...mods, key].join("+");
-    recordedKeys.value = [...mods, key];
-    saveShortcut(combo);
-    displayShortcut.value = combo;
-    recording.value = false;
+    if (recording.value) {
+      recordedKeys.value = [...mods, key];
+      saveShortcut(combo);
+      displayShortcut.value = combo;
+      recording.value = false;
+    } else if (recordingNote.value) {
+      recordedNoteKeys.value = [...mods, key];
+      saveNoteShortcut(combo);
+      displayNoteShortcut.value = combo;
+      recordingNote.value = false;
+    }
   } else {
-    recordedKeys.value = mods;
+    if (recording.value) recordedKeys.value = mods;
+    if (recordingNote.value) recordedNoteKeys.value = mods;
   }
 }
 
@@ -114,27 +136,86 @@ onMounted(() => {
   document.addEventListener("keydown", handleKeyDown, true);
 });
 
+const settingsRef = ref<HTMLElement | null>(null);
+const settingsTrackRef = ref<HTMLElement | null>(null);
+const settingsThumbRef = ref<HTMLElement | null>(null);
+
+let scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+function setupSettingsScrollbar() {
+  const list = settingsRef.value;
+  const track = settingsTrackRef.value;
+  const thumb = settingsThumbRef.value;
+  if (!list || !track || !thumb) return;
+
+  // 箭头函数在空值守卫之后定义，才能继承 list/track/thumb 的非空收窄（函数声明会被提升，收窄失效）
+  const updateThumb = () => {
+    const { scrollTop, scrollHeight, clientHeight } = list;
+    if (scrollHeight <= clientHeight) {
+      track.classList.remove("visible");
+      return;
+    }
+    const ratio = clientHeight / scrollHeight;
+    const thumbH = Math.max(20, clientHeight * ratio);
+    const thumbTop = (scrollTop / (scrollHeight - clientHeight)) * (clientHeight - thumbH);
+    thumb.style.height = thumbH + "px";
+    thumb.style.top = thumbTop + "px";
+    track.classList.add("visible");
+    if (scrollbarHideTimer) clearTimeout(scrollbarHideTimer);
+    scrollbarHideTimer = setTimeout(() => {
+      track.classList.remove("visible");
+    }, 800);
+  };
+
+  list.addEventListener("scroll", updateThumb);
+  window.addEventListener("resize", updateThumb);
+  requestAnimationFrame(updateThumb);
+}
+
+onMounted(() => {
+  setupSettingsScrollbar();
+});
+
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", handleKeyDown, true);
+  if (scrollbarHideTimer) clearTimeout(scrollbarHideTimer);
 });
 </script>
 
 <template>
   <div class="settings-view">
+    <div class="settings-scroll-inner scrollbar-hide" ref="settingsRef">
     <h2>⚙ 设置</h2>
 
-    <div class="setting-group">
-      <div class="setting-label">全局快捷键</div>
-      <input
-        class="neu-input"
-        :class="{ recording: recording }"
-        :value="recording ? recordedKeys.join('+') || '请按下快捷键组合...' : displayShortcut"
-        readonly
-        @click="startRecording"
-        placeholder="点击录制快捷键"
-      />
-      <div class="shortcut-hint">
-        {{ recording ? '按下 Esc 取消录制' : '点击后按下键盘组合键进行设置' }}
+    <div class="shortcut-row">
+      <div class="setting-group">
+        <div class="setting-label center-label">全局快捷键</div>
+        <input
+          class="neu-input"
+          :class="{ recording: recording }"
+          :value="recording ? recordedKeys.join('+') || '请按下快捷键组合...' : displayShortcut"
+          readonly
+          @click="startRecording"
+          placeholder="点击录制快捷键"
+        />
+        <div class="shortcut-hint">
+          {{ recording ? '按下 Esc 取消录制' : '按下键盘组合键进行设置' }}
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <div class="setting-label center-label">快捷便签快捷键</div>
+        <input
+          class="neu-input"
+          :class="{ recording: recordingNote }"
+          :value="recordingNote ? recordedNoteKeys.join('+') || '请按下快捷键组合...' : displayNoteShortcut"
+          readonly
+          @click="startRecordingNote"
+          placeholder="点击录制快捷键"
+        />
+        <div class="shortcut-hint">
+          {{ recordingNote ? '按下 Esc 取消录制' : '独立便签窗口呼出快捷键' }}
+        </div>
       </div>
     </div>
 
@@ -191,10 +272,29 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <div class="version-text">当前版本 v1.0.2</div>
+    </div>
+    <div class="memo-scroll-track" ref="settingsTrackRef">
+      <div class="memo-scroll-thumb" ref="settingsThumbRef"></div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.settings-view {
+  position: relative;
+  overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+}
+.settings-scroll-inner {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 16px;
+}
+
 .neu-input {
   width: 100%;
   height: 40px;
@@ -204,16 +304,17 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   color: var(--text-primary);
   font-size: 14px;
+  text-align: center;
   cursor: pointer;
-  box-shadow: inset 3px 3px 6px var(--neu-shadow-dark, #b8bec7),
-              inset -3px -3px 6px var(--neu-shadow-light, #ffffff);
+  box-shadow: 3px 3px 6px var(--neu-shadow-dark, #b8bec7),
+              -3px -3px 6px var(--neu-shadow-light, #ffffff);
   outline: none;
   transition: box-shadow 0.2s;
 }
 
-.neu-input:focus {
-  box-shadow: inset 4px 4px 8px var(--neu-shadow-dark, #b8bec7),
-              inset -4px -4px 8px var(--neu-shadow-light, #ffffff);
+.neu-input.recording {
+  box-shadow: inset 3px 3px 6px var(--neu-shadow-dark, #b8bec7),
+              inset -3px -3px 6px var(--neu-shadow-light, #ffffff);
 }
 
 .neu-btn {
@@ -268,6 +369,19 @@ onBeforeUnmount(() => {
 .setting-row {
   display: flex;
   gap: 10px;
+}
+
+.shortcut-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.shortcut-row .setting-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+.center-label {
+  text-align: center;
 }
 
 .neu-btn-sm {

@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quick Note</title>
+  <style>
+    :root {
+      --bg-primary: #f3f3f3;
+      --bg-secondary: #ffffff;
+      --bg-card: #ffffff;
+      --text-primary: #1a1a1a;
+      --text-secondary: #5d5d5d;
+      --text-muted: #999;
+      --border-color: #e5e5e5;
+      --accent: #6c63ff;
+      --accent-hover: #8a83ff;
+      --danger: #c42b1c;
+      --success: #0f7b0f;
+      --radius: 8px;
+      --transition: 0.15s ease;
+      --neu-bg: #e0e5ec;
+      --neu-shadow-dark: #b8bec7;
+      --neu-shadow-light: #ffffff;
+    }
+    .dark {
+      --bg-primary: #1a1a1a;
+      --bg-secondary: #252525;
+      --bg-card: #2a2a2a;
+      --text-primary: #e0e0e0;
+      --text-secondary: #a0a0a0;
+      --text-muted: #666;
+      --border-color: #3a3a3a;
+      --danger: #ff5555;
+      --success: #55cc55;
+      --neu-bg: #2d2d2d;
+      --neu-shadow-dark: #1a1a1a;
+      --neu-shadow-light: #3a3a3a;
+    }
+    /* Skins */
+    .skin-default { --accent: #6c63ff; --accent-hover: #8a83ff; --neu-bg: #e0e5ec; --neu-shadow-dark: #b8bec7; --neu-shadow-light: #ffffff; }
+    .skin-dark { --accent: #4a9eff; --accent-hover: #6bb3ff; --neu-bg: #2d2d2d; --neu-shadow-dark: #1a1a1a; --neu-shadow-light: #404040; }
+    .skin-warm { --accent: #e87c3a; --accent-hover: #d06a2a; --neu-bg: #f5f0e8; --neu-shadow-dark: #d4cfc7; --neu-shadow-light: #ffffff; }
+    .skin-fresh { --accent: #7da882; --accent-hover: #6a9670; --neu-bg: #e8ebe6; --neu-shadow-dark: #c8cbc3; --neu-shadow-light: #f8faf6; }
+    .skin-pink { --accent: #b07a8e; --accent-hover: #c48da0; --neu-bg: #f0ecf0; --neu-shadow-dark: #cbc3c8; --neu-shadow-light: #faf6f8; }
+    .skin-ocean { --accent: #2196f3; --accent-hover: #1976d2; --neu-bg: #e3ecf5; --neu-shadow-dark: #c3cfe0; --neu-shadow-light: #ffffff; }
+    .dark.skin-default { --accent: #8a83ff; --accent-hover: #a9a3ff; }
+    .dark.skin-dark { --accent: #4a9eff; --accent-hover: #6bb3ff; }
+    .dark.skin-warm { --accent: #f09050; --accent-hover: #e07830; }
+    .dark.skin-fresh { --accent: #66bb6a; --accent-hover: #57a85c; }
+    .dark.skin-pink { --accent: #f06292; --accent-hover: #e0407a; }
+    .dark.skin-ocean { --accent: #42a5f5; --accent-hover: #2196f3; }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+      user-select: none;
+    }
+    #app {
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      background: var(--neu-bg);
+      overflow: hidden;
+    }
+    /* ── 标题栏 ── */
+    .title-bar {
+      flex: 0 0 38px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 8px 0 12px;
+      background: color-mix(in srgb, var(--neu-bg) 90%, black);
+      border-bottom: 1px solid var(--border-color);
+      cursor: default;
+    }
+    .title-bar .title-text {
+      font-size: 12px; color: var(--text-muted); font-weight: 500;
+      pointer-events: none;
+    }
+    .title-actions {
+      display: flex; align-items: center; gap: 2px;
+    }
+    .title-btn {
+      width: 26px; height: 26px; border: 0; border-radius: 6px;
+      background: transparent; color: var(--text-secondary);
+      cursor: pointer; font-size: 13px; display: flex;
+      align-items: center; justify-content: center;
+      transition: background var(--transition), color var(--transition);
+    }
+    .title-btn:hover { background: rgba(128,128,128,0.12); }
+    .title-btn.active { color: var(--accent); }
+    .title-btn.close-btn:hover { background: rgba(196,43,28,0.12); color: var(--danger); }
+    .title-btn svg { width: 14px; height: 14px; }
+    @keyframes pin-bounce {
+      0% { transform: scale(1); }
+      30% { transform: scale(1.3) rotate(-12deg); }
+      60% { transform: scale(0.9) rotate(6deg); }
+      100% { transform: scale(1) rotate(0deg); }
+    }
+    .title-btn.pin-anim { animation: pin-bounce 0.35s ease; }
+    /* 颜色指示条 */
+    .color-indicator {
+      position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      border-radius: 10px 10px 0 0; display: none;
+    }
+    .color-indicator[data-c="pink"] { display: block; background: #e74c3c; }
+    .color-indicator[data-c="blue"] { display: block; background: #83c7f7; }
+    .color-indicator[data-c="green"] { display: block; background: #41b349; }
+    .color-indicator[data-c="yellow"] { display: block; background: #f7d883; }
+    /* ── 内容区 ── */
+    .content-area {
+      flex: 1; min-height: 0; display: flex; flex-direction: column;
+      padding: 10px 12px 8px;
+      overflow-y: auto;
+    }
+    .note-textarea {
+      flex: 1; min-height: 60px; width: 100%;
+      border: none; outline: none; resize: none;
+      background: transparent; color: var(--text-primary);
+      font-size: 14px; line-height: 1.6;
+      font-family: inherit;
+    }
+    .note-textarea::placeholder { color: var(--text-muted); }
+    /* ── 图片区 ── */
+    .images-area {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      padding: 4px 0;
+    }
+    .images-area:empty { display: none; }
+    .img-thumb {
+      position: relative; width: 48px; height: 48px;
+      border-radius: 6px; overflow: hidden;
+      border: 1px solid var(--border-color);
+    }
+    .img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .img-thumb .remove-img {
+      position: absolute; top: 1px; right: 1px;
+      width: 16px; height: 16px; border: 0; border-radius: 50%;
+      background: rgba(0,0,0,0.6); color: #fff; font-size: 11px;
+      cursor: pointer; display: none; align-items: center; justify-content: center;
+      line-height: 1;
+    }
+    .img-thumb:hover .remove-img { display: flex; }
+    /* ── 底部工具栏 ── */
+    .bottom-bar {
+      flex: 0 0 36px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 10px;
+      border-top: 1px solid var(--border-color);
+      background: color-mix(in srgb, var(--neu-bg) 90%, black);
+    }
+    .bottom-bar-left {
+      display: flex; align-items: center; gap: 2px;
+    }
+    .bottom-btn {
+      width: 28px; height: 28px; border: 0; border-radius: 6px;
+      background: transparent; color: var(--text-secondary);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background var(--transition), color var(--transition);
+    }
+    .bottom-btn:hover { background: rgba(128,128,128,0.1); color: var(--accent); }
+    .bottom-btn svg { width: 16px; height: 16px; }
+    .hint-text { font-size: 11px; color: var(--text-muted); }
+    /* ── 弹出菜单 ── */
+    .popup-menu {
+      position: fixed; z-index: 100;
+      background: var(--bg-card); border: 1px solid var(--border-color);
+      border-radius: 8px; padding: 4px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      display: none;
+    }
+    .popup-menu.show { display: block; }
+    .popup-menu button {
+      display: block; width: 100%; padding: 7px 14px;
+      border: 0; border-radius: 5px; background: none;
+      color: var(--text-primary); font-size: 12px;
+      cursor: pointer; text-align: left; white-space: nowrap;
+    }
+    .popup-menu button:hover { background: rgba(128,128,128,0.1); }
+    .popup-menu button.danger { color: var(--danger); }
+    .popup-menu.template-popup {
+      background: var(--neu-bg); border: none;
+      border-radius: 10px;
+      box-shadow: 4px 4px 8px var(--neu-shadow-dark, #b8bec7),
+                  -4px -4px 8px var(--neu-shadow-light, #ffffff);
+    }
+    .popup-menu.template-popup button:hover {
+      background: none;
+      box-shadow: inset 2px 2px 5px var(--neu-shadow-dark, #b8bec7),
+                  inset -2px -2px 5px var(--neu-shadow-light, #ffffff);
+    }
+    .dark .popup-menu.template-popup {
+      box-shadow: 4px 4px 8px var(--neu-shadow-dark, #1a1a1a),
+                  -4px -4px 8px var(--neu-shadow-light, #3a3a3a);
+    }
+    /* 颜色选择器 */
+    .color-picker {
+      position: fixed; z-index: 100;
+      background: var(--bg-card); border: 1px solid var(--border-color);
+      border-radius: 8px; padding: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      display: none; gap: 6px;
+    }
+    .color-picker.show { display: flex; }
+    .color-dot {
+      width: 20px; height: 20px; border-radius: 50%;
+      cursor: pointer; border: 2px solid transparent;
+      transition: transform 0.1s, border-color 0.1s;
+    }
+    .color-dot:hover { transform: scale(1.2); }
+    .color-dot.active { border-color: var(--text-primary); }
+    .color-dot[data-c="pink"] { background: #e74c3c; }
+    .color-dot[data-c="blue"] { background: #83c7f7; }
+    .color-dot[data-c="green"] { background: #41b349; }
+    .color-dot[data-c="yellow"] { background: #f7d883; }
+    /* 自定义时间 */
+    .custom-time-row {
+      display: flex; align-items: center; gap: 4px; padding: 4px 6px;
+    }
+    .custom-time-row input {
+      flex: 1; font-size: 11px; padding: 3px 6px;
+      border: 1px solid var(--border-color); border-radius: 4px;
+      background: var(--bg-secondary); color: var(--text-primary);
+    }
+    .custom-time-row button {
+      padding: 3px 8px; font-size: 11px; border: 0; border-radius: 4px;
+      background: var(--accent); color: #fff; cursor: pointer;
+    }
+    /* 提醒已设置指示 */
+    .reminder-indicator {
+      font-size: 10px; color: var(--accent); margin-left: 4px;
+      display: none;
+    }
+    .reminder-indicator.show { display: inline; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="color-indicator" id="color-indicator"></div>
+    <div class="title-bar" id="title-bar">
+      <span class="title-text">快捷便签</span>
+      <div class="title-actions">
+        <button class="title-btn" id="btn-pin" title="置顶">📌</button>
+        <button class="title-btn" id="btn-color" title="标记颜色">🎨</button>
+        <button class="title-btn" id="btn-reminder" title="设置提醒">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="13" r="7"/><path d="M12 10v4l2.5 1.5"/><path d="M5 4 3 6"/><path d="M19 4l2 2"/>
+          </svg>
+        </button>
+        <span class="reminder-indicator" id="reminder-indicator">⏰</span>
+        <button class="title-btn close-btn" id="btn-close" title="保存并关闭">✕</button>
+      </div>
+    </div>
+    <div class="content-area">
+      <textarea class="note-textarea" id="note-input" placeholder="输入备忘内容…&#10;Shift+Enter 换行"></textarea>
+      <div class="images-area" id="images-area"></div>
+    </div>
+    <div class="bottom-bar">
+      <div class="bottom-bar-left">
+        <button class="bottom-btn" id="btn-add-image" title="添加图片">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>
+          </svg>
+        </button>
+        <button class="bottom-btn" id="btn-template" title="插入模板">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+        </button>
+      </div>
+      <span class="hint-text">Ctrl+V 粘贴图片</span>
+    </div>
+  </div>
+
+  <!-- 模板菜单 -->
+  <div class="popup-menu template-popup" id="template-menu">
+    <button data-tpl="todo">待办清单</button>
+    <button data-tpl="order">订单记录</button>
+    <button data-tpl="aftersale">售后记录</button>
+    <button data-tpl="diary">日记</button>
+    <button data-tpl="reading">读书笔记</button>
+    <button data-tpl="project">项目计划</button>
+  </div>
+
+  <!-- 颜色选择器 -->
+  <div class="color-picker" id="color-picker">
+    <div class="color-dot" data-c="pink"></div>
+    <div class="color-dot" data-c="blue"></div>
+    <div class="color-dot" data-c="green"></div>
+    <div class="color-dot" data-c="yellow"></div>
+  </div>
+
+  <!-- 提醒菜单 -->
+  <div class="popup-menu" id="reminder-menu">
+    <button data-min="10">10 分钟后</button>
+    <button data-min="30">30 分钟后</button>
+    <button data-min="60">1 小时后</button>
+    <button data-tomorrow>明天 9:00</button>
+    <button data-custom>自定义时间</button>
+    <div class="custom-time-row" id="custom-time-row" style="display:none">
+      <input type="datetime-local" id="custom-time-input" />
+      <button id="custom-time-ok">确定</button>
+    </div>
+    <button class="danger" id="btn-cancel-reminder" style="display:none">取消提醒</button>
+  </div>
+
+  <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none" />
+
+  <script>
+    (function () {
+      var invokeFn = null;
+      var appWindow = null;
+
+      // ── 状态 ──
+      var isPinned = false;
+      var isDone = false;
+      var selectedColor = "";
+      var remindAt = "";
+      var imageFilenames = [];
+      var imageUrls = {}; // filename -> dataURL
+
+      // ── DOM ──
+      var noteInput = document.getElementById("note-input");
+      var imagesArea = document.getElementById("images-area");
+      var btnPin = document.getElementById("btn-pin");
+      var btnColor = document.getElementById("btn-color");
+      var btnReminder = document.getElementById("btn-reminder");
+      var btnClose = document.getElementById("btn-close");
+      var btnAddImage = document.getElementById("btn-add-image");
+      var btnTemplate = document.getElementById("btn-template");
+      var templateMenu = document.getElementById("template-menu");
+      var colorPicker = document.getElementById("color-picker");
+      var reminderMenu = document.getElementById("reminder-menu");
+      var colorIndicator = document.getElementById("color-indicator");
+      var reminderIndicator = document.getElementById("reminder-indicator");
+      var fileInput = document.getElementById("file-input");
+      var customTimeRow = document.getElementById("custom-time-row");
+      var customTimeInput = document.getElementById("custom-time-input");
+      var customTimeOk = document.getElementById("custom-time-ok");
+      var btnCancelReminder = document.getElementById("btn-cancel-reminder");
+      var titleBar = document.getElementById("title-bar");
+
+      // ── 工具函数 ──
+      function pad(n) { return n.toString().padStart(2, "0"); }
+      function toDbDate(d) {
+        return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":00";
+      }
+      function generateFilename(ext) {
+        return crypto.randomUUID() + "." + ext;
+      }
+
+      // ── 重置状态（每次窗口打开时） ──
+      function resetState() {
+        isPinned = false; isDone = false; selectedColor = ""; remindAt = "";
+        imageFilenames = []; imageUrls = {};
+        noteInput.value = "";
+        imagesArea.innerHTML = "";
+        btnPin.classList.remove("active");
+        colorIndicator.removeAttribute("data-c");
+        reminderIndicator.classList.remove("show");
+        btnCancelReminder.style.display = "none";
+        hidePopups();
+        noteInput.focus();
+      }
+
+      // ── 弹出菜单控制 ──
+      function hidePopups() {
+        colorPicker.classList.remove("show");
+        reminderMenu.classList.remove("show");
+        templateMenu.classList.remove("show");
+        customTimeRow.style.display = "none";
+      }
+
+      // ── 标题栏拖拽 ──
+      titleBar.addEventListener("mousedown", function (e) {
+        if (e.target.closest("button")) return;
+        e.preventDefault();
+        try {
+          if (window.__TAURI__ && window.__TAURI__.window) {
+            var w = window.__TAURI__.window.getCurrentWindow();
+            if (w && w.startDragging) w.startDragging();
+          }
+        } catch (err) {}
+      });
+
+      // ── 置顶 ──
+      btnPin.addEventListener("click", function () {
+        isPinned = !isPinned;
+        btnPin.classList.toggle("active", isPinned);
+        btnPin.classList.remove("pin-anim");
+        void btnPin.offsetWidth;
+        btnPin.classList.add("pin-anim");
+      });
+      btnPin.addEventListener("animationend", function () {
+        btnPin.classList.remove("pin-anim");
+      });
+
+      // ── 颜色 ──
+      btnColor.addEventListener("click", function (e) {
+        e.stopPropagation();
+        reminderMenu.classList.remove("show");
+        var rect = btnColor.getBoundingClientRect();
+        colorPicker.style.top = (rect.bottom + 4) + "px";
+        colorPicker.style.right = (window.innerWidth - rect.right) + "px";
+        colorPicker.style.left = "auto";
+        colorPicker.classList.toggle("show");
+        // 更新 active 状态
+        colorPicker.querySelectorAll(".color-dot").forEach(function (dot) {
+          dot.classList.toggle("active", dot.dataset.c === selectedColor);
+        });
+      });
+
+      colorPicker.addEventListener("click", function (e) {
+        var dot = e.target.closest(".color-dot");
+        if (!dot) return;
+        var c = dot.dataset.c;
+        selectedColor = (selectedColor === c) ? "" : c;
+        colorIndicator.setAttribute("data-c", selectedColor || "");
+        if (!selectedColor) colorIndicator.removeAttribute("data-c");
+        colorPicker.querySelectorAll(".color-dot").forEach(function (d) {
+          d.classList.toggle("active", d.dataset.c === selectedColor);
+        });
+        colorPicker.classList.remove("show");
+      });
+
+      // ── 提醒 ──
+      btnReminder.addEventListener("click", function (e) {
+        e.stopPropagation();
+        colorPicker.classList.remove("show");
+        var rect = btnReminder.getBoundingClientRect();
+        reminderMenu.style.top = (rect.bottom + 4) + "px";
+        reminderMenu.style.right = (window.innerWidth - rect.right) + "px";
+        reminderMenu.style.left = "auto";
+        reminderMenu.classList.toggle("show");
+        btnCancelReminder.style.display = remindAt ? "block" : "none";
+      });
+
+      reminderMenu.addEventListener("click", function (e) {
+        var btn = e.target.closest("button");
+        if (!btn) return;
+        if (btn.dataset.min) {
+          var d = new Date();
+          d.setMinutes(d.getMinutes() + parseInt(btn.dataset.min));
+          remindAt = toDbDate(d);
+        } else if (btn.hasAttribute("data-tomorrow")) {
+          var d2 = new Date();
+          d2.setDate(d2.getDate() + 1);
+          d2.setHours(9, 0, 0, 0);
+          remindAt = toDbDate(d2);
+        } else if (btn.hasAttribute("data-custom")) {
+          var now = new Date();
+          now.setMinutes(now.getMinutes() + 30);
+          customTimeInput.value = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) + "T" + pad(now.getHours()) + ":" + pad(now.getMinutes());
+          customTimeRow.style.display = "flex";
+          return;
+        } else if (btn.id === "btn-cancel-reminder") {
+          remindAt = "";
+          reminderIndicator.classList.remove("show");
+          reminderMenu.classList.remove("show");
+          return;
+        } else {
+          return;
+        }
+        reminderIndicator.classList.add("show");
+        reminderMenu.classList.remove("show");
+        customTimeRow.style.display = "none";
+      });
+
+      customTimeOk.addEventListener("click", function () {
+        if (!customTimeInput.value) return;
+        remindAt = customTimeInput.value.replace("T", " ") + ":00";
+        reminderIndicator.classList.add("show");
+        reminderMenu.classList.remove("show");
+        customTimeRow.style.display = "none";
+      });
+
+      // 点击空白关闭弹出
+      document.addEventListener("mousedown", function (e) {
+        if (!e.target.closest(".color-picker") && !e.target.closest("#btn-color")) {
+          colorPicker.classList.remove("show");
+        }
+        if (!e.target.closest(".popup-menu") && !e.target.closest("#btn-reminder") && !e.target.closest("#btn-template")) {
+          reminderMenu.classList.remove("show");
+          templateMenu.classList.remove("show");
+          customTimeRow.style.display = "none";
+        }
+      });
+
+      // ── 模板 ──
+      function pad(n) { return n.toString().padStart(2, "0"); }
+      function todayStr() { return new Date().toLocaleDateString('zh-CN'); }
+      var templates = {
+        todo: '## 待办\n- [ ] ',
+        order: function() { return '## 订单记录\n**日期：** ' + todayStr() + '\n**订单号：**\n**平台：** 抖音\n**商品：**\n**金额：**\n**买家ID：**\n\n### 订单状态\n- [ ] 已发货\n- [ ] 已签收\n- [ ] 已完成\n\n### 备注\n'; },
+        aftersale: function() { return '## 售后记录\n**日期：** ' + todayStr() + '\n**订单号：**\n**商品：**\n**售后类型：** 退款/退货/换货/补偿\n\n### 问题描述\n\n### 处理方案\n\n### 处理结果\n- [ ] 已处理\n- [ ] 待跟进\n'; },
+        diary: function() { return '## ' + todayStr() + '\n\n### 今天做了\n\n### 感悟\n'; },
+        reading: '## 《书名》\n\n### 核心观点\n\n### 金句\n\n### 感想\n',
+        project: '## 项目计划\n\n### 目标\n\n### 步骤\n1. \n2. \n3. \n\n### 截止日期\n',
+      };
+
+      btnTemplate.addEventListener("click", function (e) {
+        e.stopPropagation();
+        hidePopups();
+        var rect = btnTemplate.getBoundingClientRect();
+        templateMenu.style.bottom = (window.innerHeight - rect.top + 4) + "px";
+        templateMenu.style.left = rect.left + "px";
+        templateMenu.style.top = "auto";
+        templateMenu.style.right = "auto";
+        templateMenu.classList.toggle("show");
+      });
+
+      templateMenu.addEventListener("click", function (e) {
+        var btn = e.target.closest("button");
+        if (!btn || !btn.dataset.tpl) return;
+        var key = btn.dataset.tpl;
+        var content = templates[key];
+        var text = typeof content === 'function' ? content() : content;
+        noteInput.value = text;
+        templateMenu.classList.remove("show");
+        noteInput.focus();
+      });
+
+      // ── 图片 ──
+      btnAddImage.addEventListener("click", function () { fileInput.click(); });
+
+      fileInput.addEventListener("change", function () {
+        var file = fileInput.files && fileInput.files[0];
+        fileInput.value = "";
+        if (file) addImageFile(file);
+      });
+
+      // Ctrl+V 粘贴图片
+      document.addEventListener("paste", function (e) {
+        var items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].kind === "file" && items[i].type.indexOf("image/") === 0) {
+            e.preventDefault();
+            var file = items[i].getAsFile();
+            if (file) addImageFile(file);
+            break;
+          }
+        }
+      });
+
+      function addImageFile(file) {
+        if (file.size > 20 * 1024 * 1024) return; // 20MB 限制
+        var ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+        var filename = generateFilename(ext);
+        var reader = new FileReader();
+        reader.onload = function () {
+          var dataUrl = reader.result;
+          var base64 = dataUrl.split(",")[1];
+          if (invokeFn) {
+            invokeFn("save_quick_note_image", { filename: filename, dataBase64: base64 })
+              .then(function () {
+                imageFilenames.push(filename);
+                imageUrls[filename] = dataUrl;
+                renderImages();
+              })
+              .catch(function (err) { console.error("save image failed:", err); });
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+
+      function renderImages() {
+        imagesArea.innerHTML = "";
+        imageFilenames.forEach(function (fn) {
+          var div = document.createElement("div");
+          div.className = "img-thumb";
+          var img = document.createElement("img");
+          img.src = imageUrls[fn] || "";
+          var btn = document.createElement("button");
+          btn.className = "remove-img";
+          btn.textContent = "×";
+          btn.addEventListener("click", function () {
+            imageFilenames = imageFilenames.filter(function (f) { return f !== fn; });
+            delete imageUrls[fn];
+            renderImages();
+          });
+          div.appendChild(img);
+          div.appendChild(btn);
+          imagesArea.appendChild(div);
+        });
+      }
+
+      // ── 关闭（保存） ──
+      btnClose.addEventListener("click", function () {
+        saveAndClose();
+      });
+
+      // Enter 保存关闭，Shift+Enter 换行；输入法组词中（isComposing / keyCode 229）不提交
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.isComposing && e.keyCode !== 229) {
+          e.preventDefault();
+          saveAndClose();
+        }
+      });
+
+      function saveAndClose() {
+        var content = noteInput.value.trim();
+        if (!content && imageFilenames.length === 0) {
+          // 空内容直接关闭
+          if (invokeFn) { invokeFn("close_quick_note").catch(function(){}); }
+          return;
+        }
+        if (!invokeFn) return;
+        invokeFn("save_quick_note", {
+          content: content,
+          color: selectedColor,
+          isPinned: isPinned,
+          isDone: isDone,
+          remindAt: remindAt,
+          images: imageFilenames,
+        }).catch(function (err) {
+          console.error("save_quick_note failed:", err);
+          // 兜底：仅关闭
+          invokeFn("close_quick_note").catch(function(){});
+        });
+      }
+
+      // ── 主题加载 ──
+      function applyTheme(settings) {
+        console.log("[QuickNote] applyTheme:", JSON.stringify(settings));
+        var html = document.documentElement;
+        if (settings.theme === "dark") html.classList.add("dark");
+        else html.classList.remove("dark");
+        var skinClasses = ["skin-default","skin-dark","skin-warm","skin-fresh","skin-pink","skin-ocean"];
+        skinClasses.forEach(function (c) { html.classList.remove(c); });
+        if (settings.skin) html.classList.add("skin-" + settings.skin);
+        else html.classList.add("skin-default");
+        console.log("[QuickNote] html classes:", html.className);
+      }
+
+      // ── Tauri 初始化 ──
+      (function waitTauri() {
+        var t = window.__TAURI__;
+        if (t && t.core && t.core.invoke) {
+          invokeFn = t.core.invoke.bind(t.core);
+          try {
+            if (t.window && t.window.getCurrentWindow) appWindow = t.window.getCurrentWindow();
+          } catch (e) {}
+          // 加载主题（尝试 invoke，失败也无所谓，主要靠事件携带）
+          invokeFn("get_settings").then(function (s) { applyTheme(s); }).catch(function (e) { console.warn("[QuickNote] get_settings失败:", e); });
+          // 监听打开事件 → 重置 + 从事件 payload 同步主题
+          if (t.event && t.event.listen) {
+            t.event.listen("quick-note-opened", function (event) {
+              resetState();
+              if (event && event.payload) {
+                applyTheme(event.payload);
+              }
+            });
+          }
+          return;
+        }
+        setTimeout(waitTauri, 100);
+      })();
+    })();
+  </script>
+</body>
+</html>

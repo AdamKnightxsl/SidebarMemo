@@ -14,9 +14,9 @@ const emit = defineEmits<{
         <h3>主要功能</h3>
         <ul>
           <li><strong>快速记录</strong> — 底部输入框输入内容，回车即保存</li>
-          <li><strong>提醒</strong> — 点击铃铛图标设置提醒时间</li>
-          <li><strong>颜色标记</strong> — 点击画笔图标给备忘录分类</li>
-          <li><strong>置顶</strong> — 重要备忘录置顶显示</li>
+          <li><strong>Markdown</strong> — 支持 **加粗**、*斜体*、`代码`、列表等语法</li>
+          <li><strong>图片附件</strong> — 编辑时可添加图片，点击可展开查看</li>
+          <li><strong>拖拽排序</strong> — 拖拽左侧 ⋮ 图标可调整顺序</li>
           <li><strong>垃圾桶</strong> — 删除的备忘录可恢复，30天自动清理</li>
         </ul>
       </div>
@@ -51,8 +51,9 @@ const emit = defineEmits<{
         <h3>窗口操作</h3>
         <ul>
           <li>拖拽边缘可调整窗口大小</li>
-          <li>鼠标移至屏幕边缘可自动吸附</li>
-          <li>全局快捷键（默认 Alt+M）可随时呼出窗口</li>
+          <li>鼠标移至屏幕边缘可自动吸附隐藏</li>
+          <li>全局快捷键（默认 <kbd style="font-size:11px;padding:1px 4px;">Alt+Q</kbd>）可随时呼出窗口</li>
+          <li>托盘图标右键可快速显示/隐藏或退出</li>
         </ul>
       </div>
 
@@ -61,11 +62,11 @@ const emit = defineEmits<{
   </div>
 </template>
 
-<style scoped>
+<style>
 .guide-overlay {
   position: fixed;
   inset: 0;
-  background: var(--bg-main, #f5f5f5);
+  background: var(--bg-primary, #f5f5f5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -74,7 +75,11 @@ const emit = defineEmits<{
 }
 
 .dark .guide-overlay {
-  background: #1a1a2e;
+  background: var(--bg-primary, #1a1a2e);
+}
+
+.skin-dark .guide-overlay {
+  background: #1a1a1a;
 }
 
 .guide-modal {
@@ -84,10 +89,27 @@ const emit = defineEmits<{
   overflow-y: auto;
   padding: 24px 28px;
   user-select: none;
+  background: var(--bg-card, #fff);
+  border-radius: 12px;
 }
 
 .dark .guide-modal {
+  background: var(--bg-card);
   color: #e0e0e0;
+}
+
+.skin-dark .guide-modal {
+  background: #2a2a2a;
+  color: #e0e0e0;
+}
+
+.skin-dark .guide-section h3 {
+  border-bottom-color: #3a3a3a;
+}
+
+.skin-dark .shortcut-item kbd {
+  background: #333;
+  border-color: #444;
 }
 
 .guide-modal h2 {
@@ -136,7 +158,7 @@ const emit = defineEmits<{
 }
 
 .shortcut-item kbd {
-  background: var(--bg-hover, #f0f0f0);
+  background: var(--bg-card, #f0f0f0);
   border: 1px solid var(--border-color, #ddd);
   border-radius: 4px;
   padding: 2px 6px;
