@@ -15,7 +15,8 @@ export function useUpdater() {
     lastError.value = "";
     updateAvailable.value = false;
     try {
-      const update = await check();
+      // timeout 20s/源，主源超时自动切备用源（jsDelivr）
+      const update = await check({ timeout: 20000 });
       if (update) {
         cachedUpdate = update;
         updateAvailable.value = true;
@@ -60,8 +61,7 @@ export function useUpdater() {
     } catch (e: any) {
       // 下载失败（通常是网络问题），用浏览器打开 Release 页面手动下载
       console.error("在线更新失败，尝试浏览器下载:", e);
-      const ver = target.version || updateVersion.value;
-      const releaseUrl = `https://github.com/AdamKnightxsl/SidebarMemo/releases/tag/v${ver}`;
+      const releaseUrl = "https://github.com/AdamKnightxsl/SidebarMemo/releases";
       try {
         await openUrl(releaseUrl);
         lastError.value = "已打开浏览器下载页面";
