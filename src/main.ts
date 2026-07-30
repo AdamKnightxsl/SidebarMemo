@@ -43,6 +43,7 @@ async function boot() {
       return;
     } catch (e) {
       console.error("viewer boot error:", e);
+      return;
     }
   }
 

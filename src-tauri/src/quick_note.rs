@@ -133,22 +133,30 @@ pub(crate) fn save_quick_note(
     // 设置颜色
     if !color.is_empty() {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        let _ = store.set_color(&memo.id, &color);
+        if let Err(e) = store.set_color(&memo.id, &color) {
+            eprintln!("[QuickNote] set_color 失败: {}", e);
+        }
     }
     // 设置置顶
     if is_pinned {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        let _ = store.toggle_pin(&memo.id);
+        if let Err(e) = store.toggle_pin(&memo.id) {
+            eprintln!("[QuickNote] toggle_pin 失败: {}", e);
+        }
     }
     // 设置完成
     if is_done {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        let _ = store.toggle_done(&memo.id);
+        if let Err(e) = store.toggle_done(&memo.id) {
+            eprintln!("[QuickNote] toggle_done 失败: {}", e);
+        }
     }
     // 设置提醒
     if !remind_at.is_empty() {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        let _ = store.set_reminder(&memo.id, &remind_at);
+        if let Err(e) = store.set_reminder(&memo.id, &remind_at) {
+            eprintln!("[QuickNote] set_reminder 失败: {}", e);
+        }
     }
     // 保存图片（从临时目录移动到正式目录）
     if !images.is_empty() {
@@ -156,17 +164,23 @@ pub(crate) fn save_quick_note(
         let base = dirs::data_dir().ok_or("no data dir")?.join("sidebar-memo").join("images");
         let src_dir = base.join("_quick_note");
         let dst_dir = base.join(&memo.id);
-        let _ = std::fs::create_dir_all(&dst_dir);
+        if let Err(e) = std::fs::create_dir_all(&dst_dir) {
+            eprintln!("[QuickNote] 创建图片目录失败: {}", e);
+        }
         for f in &images {
             let src = src_dir.join(f);
             let dst = dst_dir.join(f);
             if src.exists() {
-                let _ = std::fs::rename(&src, &dst);
+                if let Err(e) = std::fs::rename(&src, &dst) {
+                    eprintln!("[QuickNote] 图片移动失败 {:?}: {}", f, e);
+                }
             }
         }
         let images_json = serde_json::to_string(&images).unwrap_or_else(|_| "[]".to_string());
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        let _ = store.update_images(&memo.id, &images_json);
+        if let Err(e) = store.update_images(&memo.id, &images_json) {
+            eprintln!("[QuickNote] update_images 失败: {}", e);
+        }
     }
 
     // 保存尺寸并隐藏窗口
@@ -234,7 +248,9 @@ pub(crate) fn move_quick_note_images(
         let src = src_dir.join(f);
         let dst = dst_dir.join(f);
         if src.exists() {
-            let _ = std::fs::rename(&src, &dst);
+            if let Err(e) = std::fs::rename(&src, &dst) {
+                eprintln!("[QuickNote] move_images 失败 {:?}: {}", f, e);
+            }
         }
     }
     Ok(())

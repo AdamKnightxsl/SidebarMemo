@@ -691,7 +691,9 @@ pub fn run() {
                 let _ = app.handle().asset_protocol_scope().allow_directory(&img_dir, true);
             }
             setup_tray(app.handle())?;
-            let _ = shortcut::register_shortcut_internal(app.handle(), &shortcut_str);
+            if let Err(e) = shortcut::register_shortcut_internal(app.handle(), &shortcut_str) {
+                eprintln!("[Shortcut] 主快捷键注册失败(可能被其他程序占用): {}", e);
+            }
             if let Err(e) = quick_note::register_note_shortcut_internal(app.handle(), &note_shortcut_str) {
                 eprintln!("[QuickNote] 快捷键注册失败: {}", e);
             }
