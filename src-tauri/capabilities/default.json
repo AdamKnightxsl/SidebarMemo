@@ -35,6 +35,7 @@
     "global-shortcut:allow-unregister",
     "updater:default",
     "process:default",
-    "notification:default"
+    "notification:default",
+    "opener:default"
   ]
 }

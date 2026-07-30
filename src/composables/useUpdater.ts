@@ -1,6 +1,7 @@
 import { ref } from "vue";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 const updating = ref(false);
 const updateAvailable = ref(false);
@@ -57,8 +58,16 @@ export function useUpdater() {
       });
       await relaunch();
     } catch (e: any) {
-      lastError.value = e?.message || String(e);
-      console.error("安装更新失败:", e);
+      // 下载失败（通常是网络问题），用浏览器打开 Release 页面手动下载
+      console.error("在线更新失败，尝试浏览器下载:", e);
+      const ver = target.version || updateVersion.value;
+      const releaseUrl = `https://github.com/AdamKnightxsl/SidebarMemo/releases/tag/v${ver}`;
+      try {
+        await openUrl(releaseUrl);
+        lastError.value = "已打开浏览器下载页面";
+      } catch {
+        lastError.value = "网络错误，请手动下载";
+      }
       updating.value = false;
     }
   }

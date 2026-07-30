@@ -1,11 +1,11 @@
 {
-  "version": "1.0.4",
-  "notes": "资源泄漏修复 + Mutex中毒恢复 + 编辑模式粘贴图片提示",
-  "pub_date": "2026-07-30T20:14:09.508Z",
+  "version": "1.0.5",
+  "notes": "更新下载失败时自动打开浏览器下载页面",
+  "pub_date": "2026-07-30T20:32:14.727Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYmZZQUhJVkpVcm9oRHlxVHpJN3FacEwvclBlS2h1RENEK25RVnVtUktEY2FEeExuL29HWUhNRG15NzZpMmhNME9KdFZPc1ZkcGVtY3B4QmpCeEhYZ2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NDQyNDIyCWZpbGU6U2lkZWJhciBNZW1vXzEuMC40X3g2NC1zZXR1cC5leGUKaEh5MlZLMnpHNytFS1k2WnAxZEFSSzQ1clVqYS9YYzhEdWE5TTJ5UEUvcjhmLzA1Wit4R21yZDBSbE54U3U1ZnZkWlovaWJxR1FvQ0xmMDN3UWFkQ0E9PQo=",
-      "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.4/Sidebar.Memo_1.0.4_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYlhpclMxdGNWcUQ2dU1IVlc1SzRtZEtsY3luQUZnZVdoZzFOUHJ3Z3BFQ01Dd1pWNUZZMm1oNmxNMkZ0R0JhVjZzc3lXc240SkYvYzlhSGd2aUdFdFE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NDQzNTIzCWZpbGU6U2lkZWJhciBNZW1vXzEuMC41X3g2NC1zZXR1cC5leGUKbFFLL3JQeXYxTlF6VDMzclJiaURQRUUzYXRscm45MWdiR2NvMXVuTGY0V2xveFNEU2NRb21nQXo1VWxpL0JOVlBRaTZxUXBBWlFSd1FlOEhyd3I5Qmc9PQo=",
+      "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.5/Sidebar.Memo_1.0.5_x64-setup.exe"
     }
   }
 }
