@@ -271,11 +271,11 @@ onBeforeUnmount(() => {
         <span v-else>检查更新</span>
       </button>
     </div>
-    <div class="version-text">当前版本 v1.0.2</div>
     </div>
     <div class="memo-scroll-track" ref="settingsTrackRef">
       <div class="memo-scroll-thumb" ref="settingsThumbRef"></div>
     </div>
+    <div class="version-text">当前版本 v{{ appVersion }}</div>
   </div>
 </template>
 
@@ -359,11 +359,13 @@ onBeforeUnmount(() => {
 }
 
 .version-text {
-  margin-top: auto;
-  padding-top: 16px;
-  text-align: right;
+  position: fixed;
+  bottom: 6px;
+  right: 10px;
   color: var(--text-muted, #999);
   font-size: 11px;
+  pointer-events: none;
+  z-index: 10;
 }
 
 .setting-row {
