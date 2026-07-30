@@ -78,7 +78,7 @@
       "endpoints": [
         "https://github.com/AdamKnightxsl/SidebarMemo/releases/latest/download/latest.json"
       ],
-      "pubkey": "RWQxlqev2tQLvKZSpjpEDALNXzjZaBLYX8vJLNNzpbbiPzVvyldM4ike",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZERjZENkY5RkE1MjEyMDQKUldRRUVsTDYrZGIyYmNGQUxLS2UxWklLaU5DNHVObUJiTldIVEFRektTZUpBTGxzNGEwdm9SeGEK",
       "windows": {
         "installMode": "basicUi"
       }
@@ -86,6 +86,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "resources": ["models/*"],
     "icon": [
