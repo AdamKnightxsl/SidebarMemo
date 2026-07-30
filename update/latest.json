@@ -1,10 +1,10 @@
 {
   "version": "1.0.5",
-  "notes": "多源检查更新+下载失败自动打开浏览器",
-  "pub_date": "2026-07-30T20:58:17.868Z",
+  "notes": "多源检查更新(jsDelivr优先)+下载失败自动打开浏览器",
+  "pub_date": "2026-07-30T21:07:00.913Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYmJ6QS9jY1FQR1g2U29UcERSRmRnTGlwK0FyeDlGN2NlOEl2SDBmNWtxOFdUbktRVDR0bmtNWTcvdkNxV0k4YUFDem1taWVrYnlZWHIrRWd0R3p0NFE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NDQ1MDg1CWZpbGU6U2lkZWJhciBNZW1vXzEuMC41X3g2NC1zZXR1cC5leGUKekNXWXRhRXJsM2hNQ0hsbWNXUGRCa3Y3T1BxbTRqQVJzWmlyS0hBVlpCa0E4c2s2N0M3L0FyeDJTNmRoTVBIbVRuTlNrc1lzTHFLOUNzUy8xcmowREE9PQo=",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYlF4cVR6NGk1Zi9vVnJ6Zkt5ZFp6eTFRUWY1cHBTa0VldTk2UEFlM1dwV1ZRZ3RPWE9HRHpVS2lPRkJCNEVaSTNlMHhEUFloT09sZTMybnBxSVJCZVFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NDQ1NjA4CWZpbGU6U2lkZWJhciBNZW1vXzEuMC41X3g2NC1zZXR1cC5leGUKVXI2SytzV3pwcVBsdHBpaTJwdktkL1RzSkwzYkZjVUhMVXF6SE1rQ3l4dFQ4RDFvZ2ROc2NUdXdSYTluMFdVOFM5SWlTd2tJcVdsQ1IvVlN0aHZ1Qmc9PQo=",
       "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.5/Sidebar.Memo_1.0.5_x64-setup.exe"
     }
   }
