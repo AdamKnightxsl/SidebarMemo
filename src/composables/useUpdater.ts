@@ -9,11 +9,23 @@ const updateVersion = ref("");
 const downloadProgress = ref(0);
 const lastError = ref("");
 let cachedUpdate: any = null;
+let lastPurgeTime = 0;
 
 export function useUpdater() {
   async function checkForUpdates() {
     lastError.value = "";
     updateAvailable.value = false;
+
+    // 刷新 jsDelivr 缓存（1小时内最多一次），确保备用源返回最新版本
+    if (Date.now() - lastPurgeTime > 3600_000) {
+      lastPurgeTime = Date.now();
+      try {
+        await fetch("https://purge.jsdelivr.net/gh/AdamKnightxsl/SidebarMemo@main/update/latest.json", {
+          signal: AbortSignal.timeout(5000),
+        });
+      } catch { /* purge 失败不影响正常流程 */ }
+    }
+
     try {
       // timeout 20s/源，主源超时自动切备用源（jsDelivr）
       const update = await check({ timeout: 20000 });

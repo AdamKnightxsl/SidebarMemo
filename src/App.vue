@@ -16,7 +16,9 @@ const appContainer = ref<HTMLElement | null>(null);
 const toastRef = ref<InstanceType<typeof Toast> | null>(null);
 const memoListRef = ref<InstanceType<typeof MemoListView> | null>(null);
 const { snappedEdge, isHidden, showFromEdge, animateToTray, closeToTray } = useWindowSnap();
-const { checkForUpdates } = useUpdater();
+const { checkForUpdates, installUpdate, updating, downloadProgress, updateVersion } = useUpdater();
+
+const showUpdateNotify = ref(false);
 
 function showToast(msg: string, duration = 0, onClick?: () => void) {
   toastRef.value?.show(msg, duration, onClick);
@@ -192,7 +194,11 @@ onMounted(async () => {
   } catch (e) {
     showToast(String(e));
   }
-  checkForUpdates();
+  checkForUpdates().then((update) => {
+    if (update) {
+      showUpdateNotify.value = true;
+    }
+  });
   positionSaveTimer = setInterval(() => {
     invoke("save_current_position");
   }, 5000);
@@ -205,6 +211,15 @@ onBeforeUnmount(() => {
   unlistenQuickNote?.();
   document.removeEventListener("visibilitychange", onVisibilityChange);
 });
+
+async function handleUpdateFromNotify() {
+  showUpdateNotify.value = false;
+  await installUpdate();
+}
+
+function dismissUpdateNotify() {
+  showUpdateNotify.value = false;
+}
 
 async function minimizeWindow() {
   const animated = await animateToTray();
@@ -316,6 +331,26 @@ function onBottomResizeMouseUp() {
     </div>
     <div class="resize-handle" @mousedown="onResizeMouseDown"></div>
     <div class="bottom-resize-handle" @mousedown="onBottomResizeMouseDown"></div>
+
+    <!-- 启动时检测到新版本的提示卡片 -->
+    <Transition name="update-notify">
+      <div v-if="showUpdateNotify" class="update-notify">
+        <div class="update-notify-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </div>
+        <div class="update-notify-body">
+          <span class="update-notify-title">发现新版本 v{{ updateVersion }}</span>
+          <span class="update-notify-sub">点击更新以获得最新功能</span>
+        </div>
+        <button class="update-notify-btn" @click="handleUpdateFromNotify">更新</button>
+        <button class="update-notify-close" @click="dismissUpdateNotify">✕</button>
+      </div>
+    </Transition>
+
     <Toast ref="toastRef" />
     <FirstRunGuide v-if="showGuide" @close="closeGuide" />
   </div>
