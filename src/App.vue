@@ -34,6 +34,13 @@ function shakeWindow() {
 let positionSaveTimer: ReturnType<typeof setInterval> | null = null;
 let unlistenReminder: (() => void) | null = null;
 let unlistenQuickNote: (() => void) | null = null;
+let appUnmounted = false;
+
+function onVisibilityChange() {
+  if (document.visibilityState === "visible") {
+    invoke("handle_system_wakeup").catch(() => {});
+  }
+}
 
 const currentView = ref<"memos" | "today" | "yesterday" | "day_before_yesterday" | "trash" | "settings">("memos");
 const { loadMemos, dateFilter } = useMemos();
@@ -164,16 +171,14 @@ onMounted(async () => {
   }
   document.addEventListener("click", resumeAudio);
   document.addEventListener("keydown", resumeAudio);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
-      invoke("handle_system_wakeup").catch(() => {});
-    }
-  });
+  document.addEventListener("visibilitychange", onVisibilityChange);
   unlistenReminder = await getCurrentWindow().listen<Memo>("memo-reminder-due", async ({ payload }) => {
+    if (appUnmounted) return;
     await showReminder(payload);
   });
   // 监听快捷便签保存事件 → 刷新列表
   unlistenQuickNote = await getCurrentWindow().listen<string>("quick-note-saved", async () => {
+    if (appUnmounted) return;
     await loadMemos();
   });
   try {
@@ -194,9 +199,11 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  appUnmounted = true;
   if (positionSaveTimer) clearInterval(positionSaveTimer);
   unlistenReminder?.();
   unlistenQuickNote?.();
+  document.removeEventListener("visibilitychange", onVisibilityChange);
 });
 
 async function minimizeWindow() {

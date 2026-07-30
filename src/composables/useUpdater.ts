@@ -22,7 +22,10 @@ export function useUpdater() {
         return update;
       }
     } catch (e: any) {
-      lastError.value = e?.message || String(e);
+      const msg = e?.message || String(e);
+      lastError.value = msg.includes("error sending request for url")
+        ? "网络错误"
+        : msg;
       console.error("检查更新失败:", e);
     }
     return null;

@@ -869,6 +869,7 @@ watch(memoImages, () => {
         style="display: none"
         @change="handleFileSelect"
       />
+      <div class="edit-paste-hint">Ctrl+V 粘贴图片</div>
     </template>
   </div>
 </template>

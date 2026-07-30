@@ -43,8 +43,20 @@ function renderTrashContent(content: string): string {
 
 // ── 自定义滚动条 ──
 let scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+let _scrollbarUpdateThumb: (() => void) | null = null;
+let _scrollbarListEl: HTMLElement | null = null;
+
+function cleanupScrollbar() {
+  if (_scrollbarUpdateThumb) {
+    _scrollbarListEl?.removeEventListener("scroll", _scrollbarUpdateThumb);
+    _scrollbarUpdateThumb = null;
+    _scrollbarListEl = null;
+  }
+}
 
 function setupScrollbar(list: HTMLElement, track: HTMLElement, thumb: HTMLElement) {
+  cleanupScrollbar();
+
   function updateThumb() {
     const { scrollTop, scrollHeight, clientHeight } = list;
     if (scrollHeight <= clientHeight) {
@@ -63,6 +75,8 @@ function setupScrollbar(list: HTMLElement, track: HTMLElement, thumb: HTMLElemen
     }, 800);
   }
 
+  _scrollbarUpdateThumb = updateThumb;
+  _scrollbarListEl = list;
   list.addEventListener("scroll", updateThumb);
   requestAnimationFrame(updateThumb);
 }
@@ -206,6 +220,8 @@ function setupScrollAnimation(list: HTMLElement) {
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", handleKeydown);
   scrollCleanupFn?.();
+  cleanupScrollbar();
+  if (scrollbarHideTimer) clearTimeout(scrollbarHideTimer);
 });
 
 function scrollToMemo(id: string) {

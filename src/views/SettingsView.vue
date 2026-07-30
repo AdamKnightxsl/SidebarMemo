@@ -141,6 +141,8 @@ const settingsTrackRef = ref<HTMLElement | null>(null);
 const settingsThumbRef = ref<HTMLElement | null>(null);
 
 let scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+let _settingsUpdateThumb: (() => void) | null = null;
+let _settingsListEl: HTMLElement | null = null;
 
 function setupSettingsScrollbar() {
   const list = settingsRef.value;
@@ -167,6 +169,8 @@ function setupSettingsScrollbar() {
     }, 800);
   };
 
+  _settingsUpdateThumb = updateThumb;
+  _settingsListEl = list;
   list.addEventListener("scroll", updateThumb);
   window.addEventListener("resize", updateThumb);
   requestAnimationFrame(updateThumb);
@@ -179,6 +183,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", handleKeyDown, true);
   if (scrollbarHideTimer) clearTimeout(scrollbarHideTimer);
+  if (_settingsUpdateThumb) {
+    _settingsListEl?.removeEventListener("scroll", _settingsUpdateThumb);
+    window.removeEventListener("resize", _settingsUpdateThumb);
+    _settingsUpdateThumb = null;
+    _settingsListEl = null;
+  }
 });
 </script>
 

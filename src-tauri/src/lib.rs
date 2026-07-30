@@ -111,9 +111,8 @@ fn notify_viewer_closed(app: &AppHandle) {
         let _ = app.emit("image-viewer-closed", ());
     }
     if let Some(state) = app.try_state::<AppState>() {
-        if let Ok(mut slot) = state.viewer_payload.lock() {
-            *slot = None;
-        }
+        let mut slot = state.viewer_payload.lock().unwrap_or_else(|e| e.into_inner());
+        *slot = None;
     }
 }
 
@@ -176,7 +175,8 @@ fn show_main_window(app: tauri::AppHandle, state: tauri::State<AppState>) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
-        if let Ok(mut v) = state.window_visible.lock() { *v = true; }
+        let mut v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+        *v = true;
     }
 }
 
@@ -201,7 +201,8 @@ fn clear_trashed(state: tauri::State<AppState>) -> Result<u32, String> {
 
 #[tauri::command]
 fn set_window_visible(state: tauri::State<AppState>, visible: bool) {
-    if let Ok(mut v) = state.window_visible.lock() { *v = visible; }
+    let mut v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+    *v = visible;
 }
 
 #[tauri::command]
@@ -215,7 +216,8 @@ fn handle_system_wakeup(app: tauri::AppHandle, state: tauri::State<AppState>) ->
     let settings2 = state.settings.lock().map_err(|e| e.to_string())?;
     register_shortcut_internal(&app, &settings2.shortcut).map_err(|e| e.to_string())?;
     if let Some(w) = app.get_webview_window("main") {
-        if let Ok(mut v) = state.window_visible.lock() { *v = w.is_visible().unwrap_or(false); }
+        let mut v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+        *v = w.is_visible().unwrap_or(false);
     }
     Ok(())
 }
@@ -233,7 +235,8 @@ fn frontend_ready(app: tauri::AppHandle, state: tauri::State<AppState>) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_skip_taskbar(true);
-        if let Ok(mut v) = state.window_visible.lock() { *v = true; }
+        let mut v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+        *v = true;
     }
 }
 
@@ -264,16 +267,16 @@ fn close_to_tray(app: tauri::AppHandle, state: tauri::State<AppState>) {
         save_window_position(&app, &w);
         let _ = w.hide();
     }
-    if let Ok(mut v) = state.window_visible.lock() { *v = false; }
+    let mut v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+    *v = false;
 }
 
 // Frontend calls this before hiding to store the correct position in memory
 #[tauri::command]
 fn save_hide_position(app: tauri::AppHandle, x: i32, y: i32) {
     let state = app.state::<AppState>();
-    if let Ok(mut pos) = state.saved_hide_position.lock() {
-        *pos = Some((x, y));
-    };
+    let mut pos = state.saved_hide_position.lock().unwrap_or_else(|e| e.into_inner());
+    *pos = Some((x, y));
 }
 
 // ── Rust 端窗口动画 ──────────────────────────────────────
@@ -475,7 +478,8 @@ fn start_hover_detection(
 ) -> Result<(), String> {
     let state = app.state::<AppState>();
     // 停止上一次检测（如果还在运行）
-    if let Ok(mut flag) = state.hover_stop_flag.lock() {
+    {
+        let mut flag = state.hover_stop_flag.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(old) = flag.as_ref() {
             old.store(true, Ordering::SeqCst);
         }
@@ -494,7 +498,7 @@ fn start_hover_detection(
                 }
 
                 let st = handle.state::<AppState>();
-                let visible = st.window_visible.lock().map(|v| *v).unwrap_or(true);
+                let visible = *st.window_visible.lock().unwrap_or_else(|e| e.into_inner());
                 if visible {
                     break;
                 }
@@ -606,17 +610,14 @@ pub(crate) fn toggle_window(app: &AppHandle) {
     let state = app.state::<AppState>();
     if let Some(w) = app.get_webview_window("main") {
         let actually_visible = {
-            if let Ok(visible) = state.window_visible.lock() {
-                *visible && w.is_visible().unwrap_or(true)
-            } else {
-                false
-            }
+            let visible = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+            *visible && w.is_visible().unwrap_or(true)
         };
         if actually_visible {
             // 非置顶且未聚焦时窗口可能被其它窗口遮挡：此时快捷键应把窗口提到前台而不是隐藏，
             // 否则用户看不见窗口却触发了隐藏，需要按两次才能呼出；
             // 置顶时窗口必然可见，无论是否聚焦都直接隐藏（一次按键即隐藏）
-            let on_top = state.settings.lock().map(|s| s.always_on_top).unwrap_or(true);
+            let on_top = state.settings.lock().unwrap_or_else(|e| e.into_inner()).always_on_top;
             let focused = w.is_focused().unwrap_or(false);
             if !on_top && !focused {
                 let _ = w.show();
@@ -627,17 +628,16 @@ pub(crate) fn toggle_window(app: &AppHandle) {
             // 隐藏/显示动画由前端状态机唯一负责，Rust 端只发事件不直接 hide/show/set_position，
             // 否则会与前端动画争抢窗口（曾因此把未贴边窗口传送回旧吸附位）
             let _ = w.emit("request-hide", ());
-            if let Ok(mut visible) = state.window_visible.lock() {
-                *visible = false;
-            }
+            let mut visible = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+            *visible = false;
         } else {
             let _ = w.emit("toggle-window", ());
-            if let Ok(mut visible) = state.window_visible.lock() {
-                *visible = true;
-            }
+            let mut visible = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+            *visible = true;
         }
     } else {
-        if let Ok(mut visible) = state.window_visible.lock() { *visible = false; }
+        let mut visible = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+        *visible = false;
     }
 }
 
@@ -730,12 +730,14 @@ pub fn run() {
                                 // 通过 toggle-window 事件同步前端状态机，避免只 show 不同步
                                 if let Some(w) = app_handle.get_webview_window("main") {
                                     let state = app_handle.state::<AppState>();
-                                    let was_visible = state.window_visible.lock().map(|v| *v).unwrap_or(false);
+                                    let was_visible = {
+                                        let v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+                                        *v
+                                    };
                                     if !was_visible {
                                         let _ = w.emit("toggle-window", ());
-                                        if let Ok(mut v) = state.window_visible.lock() {
-                                            *v = true;
-                                        }
+                                        let mut v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+                                        *v = true;
                                     } else {
                                         let _ = w.show();
                                         let _ = w.set_focus();
