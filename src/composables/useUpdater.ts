@@ -23,6 +23,8 @@ export function useUpdater() {
         await fetch("https://purge.jsdelivr.net/gh/AdamKnightxsl/SidebarMemo@main/update/latest.json", {
           signal: AbortSignal.timeout(5000),
         });
+        // 等待 CDN 边缘节点刷新，避免 check 时仍命中旧缓存
+        await new Promise(r => setTimeout(r, 2500));
       } catch { /* purge 失败不影响正常流程 */ }
     }
 
