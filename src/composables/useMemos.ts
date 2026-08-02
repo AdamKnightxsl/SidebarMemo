@@ -1,6 +1,7 @@
 import { ref, computed, inject } from "vue";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { matchesQuery } from "./pinyinSearch";
+import { invokeWithRetry } from "@/utils";
 
 export type ShowToastFn = (msg: string, duration?: number) => void;
 
@@ -41,6 +42,13 @@ function getMidnight(date: Date): number {
   return d.getTime();
 }
 
+/** 返回本地时间字符串，格式与后端 Local::now() 一致：YYYY-MM-DD HH:MM:SS */
+function localNowStr(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function matchDateFilter(m: Memo): boolean {
   if (dateFilter.value === "all") return true;
   if (dateFilter.value === "trash") return false;
@@ -77,7 +85,7 @@ export function useMemos() {
 
   async function loadMemos() {
     try {
-      memos.value = await invoke<Memo[]>("get_memos");
+      memos.value = await invokeWithRetry<Memo[]>(() => invoke<Memo[]>("get_memos"));
     } catch (e) {
       toast(String(e));
     }
@@ -106,7 +114,7 @@ export function useMemos() {
       const m = memos.value.find((m) => m.id === id);
       if (m) {
         m.content = content;
-        m.updated_at = new Date().toISOString().replace("T", " ").slice(0, 19);
+        m.updated_at = localNowStr();
       }
     } catch (e) {
       toast(String(e));
@@ -171,7 +179,7 @@ export function useMemos() {
       const m = memos.value.find((m) => m.id === id);
       if (m) {
         m.is_trashed = true;
-        m.trashed_at = new Date().toISOString().replace("T", " ").slice(0, 19);
+        m.trashed_at = localNowStr();
       }
       memos.value = memos.value.filter((m) => m.id !== id);
     } catch (e) {

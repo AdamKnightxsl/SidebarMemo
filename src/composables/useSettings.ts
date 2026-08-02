@@ -1,6 +1,7 @@
 import { ref, inject } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { ShowToastFn } from "./useMemos";
+import { invokeWithRetry } from "@/utils";
 
 export interface Settings {
   shortcut: string;
@@ -26,8 +27,11 @@ export function useSettings() {
   const toast = inject<ShowToastFn>('showToast', (msg: string) => console.error(msg));
   async function loadSettings() {
     try {
-      settings.value = await invoke<Settings>("get_settings");
+      const s = await invokeWithRetry<Settings>(() => invoke<Settings>("get_settings"));
+      invoke("fe_log", { msg: `get_settings ok theme=${s.theme} skin=${s.skin}` }).catch(() => {});
+      settings.value = s;
     } catch (e) {
+      invoke("fe_log", { msg: `get_settings ERROR ${String(e)}` }).catch(() => {});
       toast(String(e));
     }
   }

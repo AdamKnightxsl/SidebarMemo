@@ -200,6 +200,12 @@ fn clear_trashed(state: tauri::State<AppState>) -> Result<u32, String> {
 }
 
 #[tauri::command]
+fn fe_log(msg: String) {
+    // 前端诊断：把前端拿到/套用的主题写入同一份 settings-diag.log（发布版无控制台）
+    settings::diag(&format!("[FE] {}", msg));
+}
+
+#[tauri::command]
 fn set_window_visible(state: tauri::State<AppState>, visible: bool) {
     let mut v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
     *v = visible;
@@ -782,7 +788,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![close_to_tray, resize_window, set_position_and_size, settings::toggle_always_on_top, frontend_ready, get_memos, get_trashed_memos, add_memo, update_memo, delete_memo, toggle_pin, set_color, toggle_done, reorder_memos, settings::get_settings, set_window_visible, move_to_trash, restore_from_trash, permanent_delete, save_current_position, set_shortcut, settings::set_theme, settings::set_skin, clear_trashed, set_reminder, clear_reminder, show_main_window, handle_system_wakeup, images::save_image, images::delete_image, images::get_image_base64, images::get_image_path, open_image_viewer, close_image_viewer, get_viewer_payload, save_hide_position, animate_window_position, cancel_window_animation, start_hover_detection, ocr_image, quick_note::open_quick_note, quick_note::close_quick_note, quick_note::save_quick_note, quick_note::save_quick_note_image, quick_note::move_quick_note_images, quick_note::set_note_shortcut])
+        .invoke_handler(tauri::generate_handler![close_to_tray, resize_window, set_position_and_size, settings::toggle_always_on_top, frontend_ready, get_memos, get_trashed_memos, add_memo, update_memo, delete_memo, toggle_pin, set_color, toggle_done, reorder_memos, settings::get_settings, set_window_visible, move_to_trash, restore_from_trash, permanent_delete, save_current_position, set_shortcut, settings::set_theme, settings::set_skin, clear_trashed, set_reminder, clear_reminder, show_main_window, handle_system_wakeup, fe_log, images::save_image, images::delete_image, images::get_image_base64, images::get_image_path, open_image_viewer, close_image_viewer, get_viewer_payload, save_hide_position, animate_window_position, cancel_window_animation, start_hover_detection, ocr_image, quick_note::open_quick_note, quick_note::close_quick_note, quick_note::save_quick_note, quick_note::save_quick_note_image, quick_note::move_quick_note_images, quick_note::set_note_shortcut])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

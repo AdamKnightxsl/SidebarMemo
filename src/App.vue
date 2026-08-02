@@ -163,6 +163,8 @@ async function showReminder(memo: Memo) {
 
 onMounted(async () => {
   await Promise.all([loadMemos(), loadSettings(), loadNotifySound()]);
+  // 诊断：记录前端 load 之后实际生效的主题与 <html> 上的 class，便于定位“后端 light 但界面 dark”
+  invoke("fe_log", { msg: `mounted theme=${settings.value.theme} htmlClass="${document.documentElement.className}"` }).catch(() => {});
   if (!localStorage.getItem("sidebarMemo_guideShown")) {
     showGuide.value = true;
   }

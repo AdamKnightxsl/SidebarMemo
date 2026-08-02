@@ -46,10 +46,10 @@ pub(crate) fn register_shortcut_internal(app: &AppHandle, shortcut_str: &str) ->
     let shortcut = parse_shortcut(shortcut_str)?;
     let gs = app.global_shortcut();
     let handle = app.clone();
-    let _ = gs.on_shortcut(shortcut, move |_, _, event| {
+    gs.on_shortcut(shortcut, move |_, _, event| {
         if event.state == ShortcutState::Pressed {
             crate::toggle_window(&handle);
         }
-    });
+    }).map_err(|e| format!("register shortcut failed: {}", e))?;
     Ok(())
 }

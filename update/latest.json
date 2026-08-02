@@ -1,11 +1,11 @@
 {
-  "version": "1.0.6",
-  "notes": "启动更新提示 + jsDelivr缓存自动刷新 + 关键错误显式日志",
-  "pub_date": "2026-07-30T22:06:24.527Z",
+  "version": "1.0.7",
+  "notes": "新增前后端诊断日志，优化设置加载与快捷便签稳定性",
+  "pub_date": "2026-08-02T19:37:40.660Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYlNiaWNqTTgxRVBpNnRycXM4WnJvc1B3eUUyWEh2ek8yVXNMZENSd3U1aE44OEJNVlQrdE5QYlBRYUl4ZjFndHYrcTlMQTRUTXFFWmtFUlo1MlZkaWdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NDQ5MTcwCWZpbGU6U2lkZWJhciBNZW1vXzEuMC42X3g2NC1zZXR1cC5leGUKUyt1enlOUW1aY00vMDZ3ZVhwYmZmVjlFYVU1aHNYY2UwZEhUL3hySjRjSGZ2OCtzTXVIb3gyL1ZoYzExcXpxZ0hpUG96SXMrUE1hVkh5d1Q5ZWNqQWc9PQo=",
-      "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.6/Sidebar.Memo_1.0.6_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYlRZaG1nZW9vTDRpL1JObEEyN0I1azlubndDS0xIT3NtOWxpMytIbTNTZWZPVzlobnJ4UUpWelkxYzRQOEpIbEQ0enlKVEdLQVo2WmRsT2Q4Nk1UMWdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1Njk5Mzk4CWZpbGU6U2lkZWJhciBNZW1vXzEuMC43X3g2NC1zZXR1cC5leGUKc1FDc250b3dTZkM5ajFNWlBZM2dnNFg5QmxYeHF6Sm9UN1BZaHBta0dsWmZFdTg2WTR3eUFwcHBjUzZTVDFYa0xMTDIxZ1RzZFRVOExRUTJkWmFNREE9PQo=",
+      "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.7/Sidebar.Memo_1.0.7_x64-setup.exe"
     }
   }
 }
