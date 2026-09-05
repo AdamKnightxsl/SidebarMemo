@@ -373,7 +373,8 @@ impl MemoStore {
         Ok(())
     }
 
-    pub fn take_due_reminders(&self) -> Result<Vec<Memo>, Box<dyn std::error::Error>> {
+    /// 查询所有已到期的提醒（不清除），由调用方在通知发送成功后调用 clear_reminders 清除
+    pub fn due_reminders(&self) -> Result<Vec<Memo>, Box<dyn std::error::Error>> {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let mut stmt = self.conn.prepare(
             "SELECT id, content, created_at, updated_at, color, is_pinned, is_done, sort_order, is_trashed, trashed_at, remind_at, images
@@ -382,14 +383,17 @@ impl MemoStore {
              ORDER BY remind_at ASC",
         )?;
         let rows = stmt.query_map(params![now], Self::row_to_memo)?;
-        let memos = rows.collect::<Result<Vec<_>, _>>()?;
-        for memo in &memos {
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn clear_reminders(&self, ids: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        for id in ids {
             self.conn.execute(
                 "UPDATE memos SET remind_at = '' WHERE id = ?1",
-                params![memo.id],
+                params![id],
             )?;
         }
-        Ok(memos)
+        Ok(())
     }
 
     pub fn auto_trash(&self) -> Result<u32, Box<dyn std::error::Error>> {

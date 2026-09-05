@@ -182,15 +182,20 @@ fn show_main_window(app: tauri::AppHandle, state: tauri::State<AppState>) {
 
 #[tauri::command]
 fn set_shortcut(state: tauri::State<AppState>, s: String, app: tauri::AppHandle) -> Result<(), String> {
+    let new_sc = parse_shortcut(&s)?;
     let mut st = state.settings.lock().map_err(|e| e.to_string())?;
     let old_shortcut = st.shortcut.clone();
-    st.shortcut = s.clone();
-    save_settings(&st).map_err(|e| e.to_string())?;
-    let gs = app.global_shortcut();
-    if let Ok(old) = parse_shortcut(&old_shortcut) {
-        let _ = gs.unregister(old);
+    let old_sc = parse_shortcut(&old_shortcut).ok();
+    // 先注册新键，成功后才写盘并注销旧键，避免注册失败（被占用/非法）导致旧键丢失
+    if old_sc != Some(new_sc) {
+        register_shortcut_internal(&app, &s)?;
+        if let Some(old) = old_sc {
+            let _ = app.global_shortcut().unregister(old);
+        }
     }
-    register_shortcut_internal(&app, &s).map_err(|e| e.to_string())
+    st.shortcut = s;
+    save_settings(&st).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 
@@ -250,7 +255,7 @@ fn frontend_ready(app: tauri::AppHandle, state: tauri::State<AppState>) {
 fn resize_window(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("main") {
         if let Ok(current) = w.inner_size() {
-            let new_w = if width > 0.0 { width.max(200.0) as u32 } else { current.width };
+            let new_w = if width > 0.0 { width.max(340.0) as u32 } else { current.width };
             let new_h = if height > 0.0 { height.max(150.0) as u32 } else { current.height };
             let _ = w.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(new_w, new_h)));
         }
@@ -577,15 +582,19 @@ fn start_hover_detection(
 }
 
 
-/// 发送 Windows 原生系统通知
-fn send_native_notification(app: &AppHandle, title: &str, body: &str) {
-    let result = app.notification()
+/// 发送 Windows 原生系统通知，返回是否发送成功
+fn send_native_notification(app: &AppHandle, title: &str, body: &str) -> bool {
+    match app.notification()
         .builder()
         .title(title)
         .body(body)
-        .show();
-    if let Err(e) = result {
-        eprintln!("[reminder] 发送系统通知失败: {}", e);
+        .show()
+    {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("[reminder] 发送系统通知失败: {}", e);
+            false
+        }
     }
 }
 
@@ -594,19 +603,29 @@ fn start_reminder_worker(app: AppHandle) {
         thread::sleep(Duration::from_secs(30));
         let state = app.state::<AppState>();
         let due = match state.store.lock() {
-            Ok(store) => store.take_due_reminders().unwrap_or_default(),
+            Ok(store) => store.due_reminders().unwrap_or_default(),
             Err(e) => { eprintln!("Reminder worker lock error: {}", e); Vec::new() }
         };
-        // 发送原生系统通知（即使窗口隐藏也能看到）
+        // 发送原生系统通知（即使窗口隐藏也能看到）；失败的保留 remind_at 下轮重试，避免提醒丢失
+        let mut sent_ids: Vec<String> = Vec::new();
         for memo in &due {
             let body = strip_markdown_for_notify(&memo.content);
             let body = if body.is_empty() { "（空内容）".to_string() } else { body };
-            send_native_notification(&app, "备忘录提醒", &body);
+            if send_native_notification(&app, "备忘录提醒", &body) {
+                sent_ids.push(memo.id.clone());
+            }
         }
-        // 同时发送事件到前端（用于 toast 和应用内提示）
+        if !sent_ids.is_empty() {
+            if let Ok(store) = state.store.lock() {
+                if let Err(e) = store.clear_reminders(&sent_ids) {
+                    eprintln!("[reminder] 清除已发送提醒失败: {}", e);
+                }
+            }
+        }
+        // 同时发送事件到前端（用于 toast 和应用内提示），仅限通知成功的条目
         if let Some(w) = app.get_webview_window("main") {
-            for memo in due {
-                let _ = w.emit("memo-reminder-due", &memo);
+            for memo in due.iter().filter(|m| sent_ids.contains(&m.id)) {
+                let _ = w.emit("memo-reminder-due", memo);
             }
         }
     });

@@ -43,6 +43,9 @@ function between(v: number, a: number, b: number) {
   return v >= Math.min(a, b) && v <= Math.max(a, b);
 }
 
+// 首启引导进行中暂停贴边自动隐藏（useTour 置为 true）：窗口在引导中途滑走会让聚光框和真实界面对不上
+export const tourSuspended = ref(false);
+
 // 贴边吸附隐藏与弹出动画：拖拽窗口到屏幕边缘时自动吸附，失焦后隐藏到边缘，鼠标悬停时弹出。
 export function useWindowSnap() {
   const snappedEdge = ref<SnapEdge>(null);
@@ -367,6 +370,7 @@ export function useWindowSnap() {
 
   async function hideToEdge() {
     if (state !== "visible" || !snappedEdge.value) return;
+    if (tourSuspended.value) return;
     stopFocusWatchdog();
     return withLock(async () => {
       try {

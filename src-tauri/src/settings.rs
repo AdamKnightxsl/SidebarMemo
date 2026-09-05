@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
@@ -171,18 +171,36 @@ pub(crate) fn get_settings(state: tauri::State<crate::AppState>) -> Result<Setti
     state.settings.lock().map_err(|e| e.to_string())?.clone().pipe(Ok)
 }
 
-#[tauri::command]
-pub(crate) fn set_theme(state: tauri::State<crate::AppState>, t: String) -> Result<(), String> {
-    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
-    settings.theme = t;
-    save_settings(&settings).map_err(|e| e.to_string())
+/// 主题/皮肤变更后推给快捷便签窗口。该窗口关闭时只 hide 不销毁，
+/// 不会重新走 open_quick_note 的同步，所以这里单独发一个不带重置语义的事件。
+fn notify_quick_note_theme(app: &AppHandle, theme: &str, skin: &str) {
+    if let Some(w) = app.get_webview_window("quick-note") {
+        let _ = w.emit("theme-changed", serde_json::json!({ "theme": theme, "skin": skin }));
+    }
 }
 
 #[tauri::command]
-pub(crate) fn set_skin(state: tauri::State<crate::AppState>, s: String) -> Result<(), String> {
-    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
-    settings.skin = s;
-    save_settings(&settings).map_err(|e| e.to_string())
+pub(crate) fn set_theme(state: tauri::State<crate::AppState>, app: AppHandle, t: String) -> Result<(), String> {
+    let (theme, skin) = {
+        let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.theme = t;
+        save_settings(&settings).map_err(|e| e.to_string())?;
+        (settings.theme.clone(), settings.skin.clone())
+    };
+    notify_quick_note_theme(&app, &theme, &skin);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn set_skin(state: tauri::State<crate::AppState>, app: AppHandle, s: String) -> Result<(), String> {
+    let (theme, skin) = {
+        let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.skin = s;
+        save_settings(&settings).map_err(|e| e.to_string())?;
+        (settings.theme.clone(), settings.skin.clone())
+    };
+    notify_quick_note_theme(&app, &theme, &skin);
+    Ok(())
 }
 
 #[tauri::command]

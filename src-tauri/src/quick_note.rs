@@ -160,6 +160,10 @@ pub(crate) fn save_quick_note(
     }
     // 保存图片（从临时目录移动到正式目录）
     if !images.is_empty() {
+        // 校验文件名，防止路径穿越把文件移出目标目录
+        for f in &images {
+            validate_path_component(f)?;
+        }
         // 移动文件
         let base = dirs::data_dir().ok_or("no data dir")?.join("sidebar-memo").join("images");
         let src_dir = base.join("_quick_note");
@@ -259,15 +263,20 @@ pub(crate) fn move_quick_note_images(
 /// 设置快捷便签快捷键
 #[tauri::command]
 pub(crate) fn set_note_shortcut(state: tauri::State<crate::AppState>, s: String, app: AppHandle) -> Result<(), String> {
+    let new_sc = parse_shortcut(&s)?;
     let mut st = state.settings.lock().map_err(|e| e.to_string())?;
     let old = st.note_shortcut.clone();
-    st.note_shortcut = s.clone();
-    save_settings(&st).map_err(|e| e.to_string())?;
-    let gs = app.global_shortcut();
-    if let Ok(old_sc) = parse_shortcut(&old) {
-        let _ = gs.unregister(old_sc);
+    let old_sc = parse_shortcut(&old).ok();
+    // 先注册新键，成功后才写盘并注销旧键，避免注册失败（被占用/非法）导致旧键丢失
+    if old_sc != Some(new_sc) {
+        register_note_shortcut_internal(&app, &s)?;
+        if let Some(old_key) = old_sc {
+            let _ = app.global_shortcut().unregister(old_key);
+        }
     }
-    register_note_shortcut_internal(&app, &s).map_err(|e| e.to_string())
+    st.note_shortcut = s;
+    save_settings(&st).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub(crate) fn register_note_shortcut_internal(app: &AppHandle, shortcut_str: &str) -> Result<(), String> {

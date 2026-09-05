@@ -297,7 +297,20 @@ async function handlePaste(e: ClipboardEvent) {
 const { getThumb, ensureThumb, evictThumb } = useThumbnailCache();
 const thumbnailUrls = ref<Map<string, string>>(new Map());
 
+// 折叠态缩略图地址：缩略图缓存优先，回退原图地址；无地址时返回空串（模板据此渲染占位而非空 src 的 img）
+function thumbSrc(filename: string): string {
+  return getThumb(props.memo.id, filename) || thumbnailUrls.value.get(filename) || "";
+}
+
+// 编辑态缩略图地址
+function editThumbSrc(filename: string): string {
+  return getThumb(props.memo.id, filename) || editImageUrls.value.get(filename) || "";
+}
+
+let thumbLoadSeq = 0;
+
 async function loadThumbnailImages() {
+  const seq = ++thumbLoadSeq;
   clearBrokenImages();
   const urls = new Map<string, string>();
   for (const filename of memoImages.value) {
@@ -308,6 +321,8 @@ async function loadThumbnailImages() {
       ensureThumb(props.memo.id, filename, assetUrl);
     }
   }
+  // 已有更新的调用发出，丢弃本次过期结果，避免覆盖新数据
+  if (seq !== thumbLoadSeq) return;
   thumbnailUrls.value = urls;
 }
 
@@ -784,20 +799,21 @@ watch(memoImages, () => {
         <div class="memo-thumbnail-stack">
           <template v-for="(filename, i) in memoImages.slice(0, 2)" :key="filename">
             <img
-              v-if="!brokenImages.has(filename)"
-              :src="getThumb(memo.id, filename) || thumbnailUrls.get(filename) || ''"
+              v-if="!brokenImages.has(filename) && thumbSrc(filename)"
+              :src="thumbSrc(filename)"
               class="memo-thumbnail"
               :style="{ zIndex: 2 - i, marginLeft: i > 0 ? '-12px' : '0' }"
               @click.stop="openImageViewer(i)"
               @error="markImageBroken(filename)"
             />
             <div
-              v-else
+              v-else-if="brokenImages.has(filename)"
               class="memo-thumbnail is-broken"
               :style="{ zIndex: 2 - i, marginLeft: i > 0 ? '-12px' : '0' }"
               @click.stop="openImageViewer(i)"
               title="图片加载失败"
             >!</div>
+            <div v-else class="memo-thumbnail is-loading" :style="{ zIndex: 2 - i, marginLeft: i > 0 ? '-12px' : '0' }"></div>
           </template>
           <span v-if="memoImages.length > 2" class="memo-thumbnail-more">
             +{{ memoImages.length - 2 }}
@@ -810,8 +826,8 @@ watch(memoImages, () => {
     <div v-if="!editing && expanded && memoImages.length > 0" class="memo-images-expanded">
       <template v-for="(filename, i) in memoImages" :key="filename">
         <img
-          v-if="!brokenImages.has(filename)"
-          :src="thumbnailUrls.get(filename) || ''"
+          v-if="!brokenImages.has(filename) && thumbnailUrls.get(filename)"
+          :src="thumbnailUrls.get(filename)"
           class="memo-expanded-img"
           :class="{ 'anim-visible': imageExpandedAnim }"
           @click.stop="openImageViewer(i)"
@@ -819,11 +835,12 @@ watch(memoImages, () => {
           @error="markImageBroken(filename)"
         />
         <div
-          v-else
+          v-else-if="brokenImages.has(filename)"
           class="memo-expanded-img is-broken"
           :class="{ 'anim-visible': imageExpandedAnim }"
           @click.stop="openImageViewer(i)"
         >图片加载失败</div>
+        <div v-else class="memo-expanded-img is-loading" :class="{ 'anim-visible': imageExpandedAnim }"></div>
       </template>
     </div>
 
@@ -848,11 +865,12 @@ watch(memoImages, () => {
             class="edit-image-thumb"
           >
             <img
-              v-if="!brokenImages.has(filename)"
-              :src="getThumb(memo.id, filename) || editImageUrls.get(filename) || ''"
+              v-if="!brokenImages.has(filename) && editThumbSrc(filename)"
+              :src="editThumbSrc(filename)"
               @error="markImageBroken(filename)"
             />
-            <div v-else class="edit-image-broken">!</div>
+            <div v-else-if="brokenImages.has(filename)" class="edit-image-broken">!</div>
+            <div v-else class="edit-image-loading"></div>
             <button class="edit-image-remove" @mousedown.prevent @click.stop="handleImageRemove(filename)" title="删除图片">×</button>
           </div>
           <button class="edit-image-add" @mousedown.prevent @click.stop="triggerFileInput" title="添加图片">

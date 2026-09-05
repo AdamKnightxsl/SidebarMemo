@@ -18,6 +18,9 @@ function show(msg: string, duration = 0, onClick?: () => void) {
     return;
   }
 
+  // 入队常驻提示前清除定时 toast 的残留定时器，否则新提示会被提前清空
+  if (timer) { clearTimeout(timer); timer = null; }
+
   queue.value.push(msg);
   callbackQueue.value.push(onClick ?? null);
 

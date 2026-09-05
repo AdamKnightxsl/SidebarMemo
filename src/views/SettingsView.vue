@@ -23,10 +23,10 @@ const isDark = computed(() => settings.value.theme === "dark");
 
 const skins = [
   { value: "default", label: "默认灰", color: "#e0e5ec", accent: "#6c63ff" },
-  { value: "dark", label: "深邃黑", color: "#2d2d2d", accent: "#4a9eff" },
-  { value: "warm", label: "暖阳橙", color: "#f5f0e8", accent: "#e87c3a" },
-  { value: "fresh", label: "清新绿", color: "#e8f5e8", accent: "#4caf50" },
-  { value: "pink", label: "樱花粉", color: "#f8e8f0", accent: "#e91e63" },
+  { value: "dark", label: "午夜蓝", color: "#20242c", accent: "#c8a563" },
+  { value: "warm", label: "陶土暖", color: "#f2ede6", accent: "#b87a5a" },
+  { value: "fresh", label: "清新绿", color: "#e8ebe6", accent: "#4caf50" },
+  { value: "pink", label: "烟岚青", color: "#eaeef0", accent: "#6a8a8f" },
   { value: "ocean", label: "海洋蓝", color: "#e8f0f8", accent: "#2196f3" },
 ];
 
@@ -35,13 +35,58 @@ function updateDisplay() {
   displayNoteShortcut.value = settings.value.note_shortcut || "Alt+N";
 }
 
-function toggleTheme() {
-  const newTheme = isDark.value ? "light" : "dark";
-  saveTheme(newTheme);
+/** 圆形揭示过渡：从点击坐标向外晕开 */
+function circularReveal(event: MouseEvent, apply: () => void) {
+  const x = event.clientX;
+  const y = event.clientY;
+  const endRadius = Math.hypot(
+    Math.max(x, window.innerWidth - x),
+    Math.max(y, window.innerHeight - y)
+  );
+
+  if (document.startViewTransition) {
+    const transition = document.startViewTransition(apply);
+    transition.ready.then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: [
+            `circle(0px at ${x}px ${y}px)`,
+            `circle(${endRadius}px at ${x}px ${y}px)`,
+          ],
+        },
+        {
+          duration: 500,
+          easing: "ease-in-out",
+          pseudoElement: "::view-transition-new(root)",
+        }
+      );
+    });
+  } else {
+    // 回退方案：覆盖层 + clip-path 动画
+    const overlay = document.createElement("div");
+    overlay.className = "skin-transition-overlay";
+    const computedStyle = getComputedStyle(document.documentElement);
+    overlay.style.background = computedStyle.getPropertyValue("--neu-bg").trim();
+    document.body.appendChild(overlay);
+    overlay.offsetHeight; // 强制回流
+    overlay.style.setProperty("--reveal-x", x + "px");
+    overlay.style.setProperty("--reveal-y", y + "px");
+    overlay.style.setProperty("--reveal-r", endRadius + "px");
+    overlay.classList.add("animating");
+    apply();
+    overlay.addEventListener("animationend", () => overlay.remove());
+  }
 }
 
-function selectSkin(value: string) {
-  saveSkin(value);
+function toggleTheme(event: MouseEvent) {
+  const newTheme = isDark.value ? "light" : "dark";
+  circularReveal(event, () => saveTheme(newTheme));
+}
+
+function selectSkin(value: string, event: MouseEvent) {
+  const currentSkin = settings.value.skin || "default";
+  if (value === currentSkin) return;
+  circularReveal(event, () => saveSkin(value));
 }
 
 onMounted(() => {
@@ -231,7 +276,7 @@ onBeforeUnmount(() => {
 
     <div class="setting-group">
       <div class="setting-label">外观模式</div>
-      <button class="neu-btn" @click="toggleTheme" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
+      <button class="neu-btn" @click="toggleTheme($event)" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
         <svg v-if="!isDark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="5"/>
           <line x1="12" y1="1" x2="12" y2="3"/>
@@ -258,7 +303,7 @@ onBeforeUnmount(() => {
           :key="skin.value"
           class="skin-item"
           :class="{ active: settings.skin === skin.value || (!settings.skin && skin.value === 'default') }"
-          @click="selectSkin(skin.value)"
+          @click="selectSkin(skin.value, $event)"
           :title="skin.label"
         >
           <div class="skin-swatch" :style="{ background: skin.color }">

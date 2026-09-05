@@ -4,12 +4,13 @@ import SideNav from "./components/SideNav.vue";
 import MemoListView from "./views/MemoListView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import Toast from "./components/Toast.vue";
-import FirstRunGuide from "./components/FirstRunGuide.vue";
+import OnboardingTour from "./components/OnboardingTour.vue";
 import { useMemos, type Memo } from "./composables/useMemos";
 import { useSettings } from "./composables/useSettings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { useWindowSnap } from "./composables/useWindowSnap";
+import { useTour } from "./composables/useTour";
 import { useUpdater } from "./composables/useUpdater";
 
 const appContainer = ref<HTMLElement | null>(null);
@@ -48,19 +49,18 @@ const currentView = ref<"memos" | "today" | "yesterday" | "day_before_yesterday"
 const { loadMemos, dateFilter } = useMemos();
 const { settings, loadSettings } = useSettings();
 
-const isAlwaysOnTop = ref(true);
-const showGuide = ref(false);
-
 provide("currentView", currentView);
 
-function closeGuide() {
-  showGuide.value = false;
-  localStorage.setItem("sidebarMemo_guideShown", "1");
-  document.documentElement.scrollTop = 0;
-  document.body.scrollTop = 0;
+const isAlwaysOnTop = ref(true);
+const { phase: tourPhase, start: startTour } = useTour();
+
+// 引导聚光的是主视图里的锚点，从设置页重播时必须先切回备忘列表
+function openGuide() {
+  currentView.value = "memos";
+  nextTick(startTour);
 }
 
-provide("showGuide", () => { showGuide.value = true; });
+provide("showGuide", openGuide);
 
 watch(currentView, (v) => {
   if (v === "today") dateFilter.value = "today";
@@ -73,18 +73,18 @@ watch(currentView, (v) => {
 const skinClasses = ["skin-default", "skin-dark", "skin-warm", "skin-fresh", "skin-pink", "skin-ocean"];
 const skinAccents: Record<string, { accent: string; accentHover: string }> = {
   "default": { accent: "#6c63ff", accentHover: "#8a83ff" },
-  "dark": { accent: "#4a9eff", accentHover: "#6bb3ff" },
-  "warm": { accent: "#e87c3a", accentHover: "#d06a2a" },
+  "dark": { accent: "#c8a563", accentHover: "#d8b878" },
+  "warm": { accent: "#b87a5a", accentHover: "#a06a4c" },
   "fresh": { accent: "#4caf50", accentHover: "#43a047" },
-  "pink": { accent: "#e91e63", accentHover: "#c2185b" },
+  "pink": { accent: "#6a8a8f", accentHover: "#5a787d" },
   "ocean": { accent: "#2196f3", accentHover: "#1976d2" },
 };
 const darkAccents: Record<string, { accent: string; accentHover: string }> = {
   "default": { accent: "#8a83ff", accentHover: "#a9a3ff" },
-  "dark": { accent: "#4a9eff", accentHover: "#6bb3ff" },
-  "warm": { accent: "#f09050", accentHover: "#e07830" },
+  "dark": { accent: "#c8a563", accentHover: "#d8b878" },
+  "warm": { accent: "#c99070", accentHover: "#b87a5a" },
   "fresh": { accent: "#66bb6a", accentHover: "#57a85c" },
-  "pink": { accent: "#f06292", accentHover: "#e0407a" },
+  "pink": { accent: "#88a8ad", accentHover: "#6a8a8f" },
   "ocean": { accent: "#42a5f5", accentHover: "#2196f3" },
 };
 
@@ -166,7 +166,7 @@ onMounted(async () => {
   // 诊断：记录前端 load 之后实际生效的主题与 <html> 上的 class，便于定位“后端 light 但界面 dark”
   invoke("fe_log", { msg: `mounted theme=${settings.value.theme} htmlClass="${document.documentElement.className}"` }).catch(() => {});
   if (!localStorage.getItem("sidebarMemo_guideShown")) {
-    showGuide.value = true;
+    openGuide();
   }
   function resumeAudio() {
     try { getAudioContext().resume(); } catch (e) { console.error(e); }
@@ -311,7 +311,7 @@ function onBottomResizeMouseUp() {
     <div class="main-area">
       <div id="title-bar" class="title-bar">
         <span>Sidebar Memo</span>
-        <div class="title-bar-btns">
+        <div class="title-bar-btns" data-tour="window-controls">
           <button class="title-bar-btn pin-btn" :class="{ active: isAlwaysOnTop }" @click="toggleAlwaysOnTop" :title="isAlwaysOnTop ? '取消置顶' : '置顶窗口'">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(45deg)">
               <path d="M12 2v8"/>
@@ -354,6 +354,6 @@ function onBottomResizeMouseUp() {
     </Transition>
 
     <Toast ref="toastRef" />
-    <FirstRunGuide v-if="showGuide" @close="closeGuide" />
+    <OnboardingTour v-if="tourPhase !== 'idle'" />
   </div>
 </template>

@@ -14,7 +14,7 @@ defineExpose({ focus });
 
 <template>
   <div class="header">
-    <div class="search-box">
+    <div class="search-box" data-tour="search-box">
       <input
         ref="input"
         v-model="model"
@@ -24,5 +24,6 @@ defineExpose({ focus });
       <span v-if="props.count !== undefined" class="search-count">{{ props.count }} 条</span>
       <button v-if="model" class="search-clear" @click="model = ''">✕</button>
     </div>
+    <slot name="actions" />
   </div>
 </template>

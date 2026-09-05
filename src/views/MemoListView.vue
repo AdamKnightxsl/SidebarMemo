@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, watchEffect, provide } from "vue";
 import SearchBar from "../components/SearchBar.vue";
+import ColorFilter from "../components/ColorFilter.vue";
 import MemoCard from "../components/MemoCard.vue";
 import QuickInput from "../components/QuickInput.vue";
 import { useMemos } from "../composables/useMemos";
@@ -11,7 +12,7 @@ import { sanitizeHtml } from "../composables/sanitizeHtml";
 import { isComposing } from "../utils";
 import { selectedIndex } from "../composables/useKeyboard";
 
-const { pinnedMemos, unpinnedMemos, addMemo, searchQuery, dateFilter, trashedMemos, loadTrashedMemos, restoreFromTrash, permanentDeleteMemo, clearTrash } = useMemos();
+const { pinnedMemos, unpinnedMemos, addMemo, searchQuery, colorFilter, dateFilter, trashedMemos, loadTrashedMemos, restoreFromTrash, permanentDeleteMemo, clearTrash } = useMemos();
 const { settings } = useSettings();
 
 // 向 MemoCard 提供 searchQuery，用于搜索高亮
@@ -92,6 +93,7 @@ function handlePermanentDelete(id: string) {
 
 const allMemos = computed(() => [...pinnedMemos.value, ...unpinnedMemos.value]);
 const maxIndex = computed(() => allMemos.value.length - 1);
+const isFiltering = computed(() => !!searchQuery.value.trim() || colorFilter.value.length > 0);
 
 async function handleAdd(content: string) {
   if (!content.trim()) return;
@@ -118,7 +120,8 @@ function scrollSelectedIntoView() {
 function editSelected() {
   const id = allMemos.value[selectedIndex.value]?.id;
   if (!id) return;
-  const el = document.querySelector(`.memo-card[data-memo-id="${id}"]`);
+  // dblclick 监听器绑定在 .memo-content 上，必须向该子元素派发（事件只向上冒泡）
+  const el = document.querySelector(`.memo-card[data-memo-id="${id}"] .memo-content`);
   el?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 }
 
@@ -321,11 +324,15 @@ watch(() => settings.value.skin, () => {
 
   <!-- 正常视图 -->
   <template v-else>
-    <SearchBar ref="searchRef" v-model="searchQuery" :count="allMemos.length" />
+    <SearchBar ref="searchRef" v-model="searchQuery" :count="allMemos.length">
+      <template #actions>
+        <ColorFilter />
+      </template>
+    </SearchBar>
     <div class="memo-list-wrapper">
       <div class="memo-list-gradient-top"></div>
       <div class="memo-list-gradient-bottom"></div>
-      <div class="memo-list scrollbar-hide" ref="normalListRef">
+      <div class="memo-list scrollbar-hide" ref="normalListRef" data-tour="memo-list">
         <div class="shadow-spacer"></div>
         <template v-if="pinnedMemos.length > 0">
           <MemoCard
@@ -350,7 +357,7 @@ watch(() => settings.value.skin, () => {
         </template>
         <div v-if="pinnedMemos.length === 0 && unpinnedMemos.length === 0" class="empty-state">
           <div class="empty-icon">📝</div>
-          <div class="empty-text">输入内容开始记录</div>
+          <div class="empty-text">{{ isFiltering ? "没有符合条件的备忘" : "输入内容开始记录" }}</div>
         </div>
       </div>
       <div class="memo-scroll-track" ref="normalTrackRef">

@@ -23,6 +23,7 @@ export interface Memo {
 const memos = ref<Memo[]>([]);
 const trashedMemos = ref<Memo[]>([]);
 const searchQuery = ref("");
+const colorFilter = ref<string[]>([]);
 const dateFilter = ref<"all" | "today" | "yesterday" | "day_before_yesterday" | "trash">("all");
 const now = ref(Date.now());
 
@@ -61,26 +62,35 @@ function matchDateFilter(m: Memo): boolean {
   return memoTime >= dayBeforeMidnight && memoTime < yesterdayMidnight;
 }
 
+function matchSearch(m: Memo): boolean {
+  const q = searchQuery.value.trim();
+  return !q || matchesQuery(m.content, q);
+}
+
+function matchColorFilter(m: Memo): boolean {
+  return colorFilter.value.length === 0 || colorFilter.value.includes(m.color);
+}
+
 export function useMemos() {
   if (!tickTimer) startTicker();
   const toast = inject<ShowToastFn>("showToast", () => {});
 
-  const pinnedMemos = computed(() => {
-    const q = searchQuery.value.trim();
-    let list = memos.value.filter((m) => m.is_pinned && matchDateFilter(m));
-    if (q) {
-      list = list.filter((m) => matchesQuery(m.content, q));
-    }
-    return list;
-  });
+  const pinnedMemos = computed(() =>
+    memos.value.filter((m) => m.is_pinned && matchDateFilter(m) && matchSearch(m) && matchColorFilter(m))
+  );
 
-  const unpinnedMemos = computed(() => {
-    const q = searchQuery.value.trim();
-    let list = memos.value.filter((m) => !m.is_pinned && matchDateFilter(m));
-    if (q) {
-      list = list.filter((m) => matchesQuery(m.content, q));
+  const unpinnedMemos = computed(() =>
+    memos.value.filter((m) => !m.is_pinned && matchDateFilter(m) && matchSearch(m) && matchColorFilter(m))
+  );
+
+  /** 各颜色标记的条数，按日期与搜索范围统计（不含颜色筛选本身，否则选中后其余颜色会显示为 0） */
+  const colorCounts = computed(() => {
+    const counts: Record<string, number> = {};
+    for (const m of memos.value) {
+      if (!m.color || !matchDateFilter(m) || !matchSearch(m)) continue;
+      counts[m.color] = (counts[m.color] || 0) + 1;
     }
-    return list;
+    return counts;
   });
 
   async function loadMemos() {
@@ -284,6 +294,8 @@ export function useMemos() {
     memos,
     trashedMemos,
     searchQuery,
+    colorFilter,
+    colorCounts,
     dateFilter,
     pinnedMemos,
     unpinnedMemos,

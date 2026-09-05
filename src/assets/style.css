@@ -16,7 +16,7 @@
   --color-pink: #e74c3c;
   --color-blue: #83c7f7;
   --color-green: #41b349;
-  --color-yellow: #f7d883;
+  --color-yellow: #e8b004;
 
   --radius: 8px;
   --radius-sm: 4px;
@@ -37,42 +37,54 @@
   display: none;
 }
 
-/* Skin themes */
+/* Skin themes — accent/accent-hover 需与 App.vue 的 skinAccents 表逐值一致（运行时以 App.vue 内联为准） */
 .skin-default {
   --neu-bg: #e0e5ec;
   --neu-shadow-dark: #b8bec7;
   --neu-shadow-light: #ffffff;
   --accent: #6c63ff;
+  --accent-hover: #8a83ff;
 }
 
+/* 午夜蓝 skin-dark · 午夜墨蓝底 + 香槟金强调色 */
 .skin-dark {
-  --neu-bg: #2d2d2d;
-  --neu-shadow-dark: #1a1a1a;
-  --neu-shadow-light: #404040;
-  --accent: #4a9eff;
-  --text-primary: #e0e0e0;
-  --text-secondary: #a0a0a0;
+  --neu-bg: #20242c;
+  --neu-shadow-dark: #14171c;
+  --neu-shadow-light: #2c323c;
+  --accent: #c8a563;
+  --accent-hover: #d8b878;
+  --bg-primary: #1a1d23;
+  --bg-secondary: #20242c;
+  --bg-card: #262b34;
+  --bg-card-hover: #2e343e;
+  --text-primary: #dfe3e9;
+  --text-secondary: #98a0ac;
+  --text-muted: #6f7681;
+  --border-color: #2f3540;
 }
 
 .skin-warm {
-  --neu-bg: #f5f0e8;
-  --neu-shadow-dark: #d4cfc7;
-  --neu-shadow-light: #ffffff;
-  --accent: #e87c3a;
+  --neu-bg: #f2ede6;
+  --neu-shadow-dark: #d1cbc2;
+  --neu-shadow-light: #fffbf6;
+  --accent: #b87a5a;
+  --accent-hover: #a06a4c;
 }
 
 .skin-fresh {
   --neu-bg: #e8ebe6;
   --neu-shadow-dark: #c8cbc3;
   --neu-shadow-light: #f8faf6;
-  --accent: #7da882;
+  --accent: #4caf50;
+  --accent-hover: #43a047;
 }
 
 .skin-pink {
-  --neu-bg: #f0ecf0;
-  --neu-shadow-dark: #cbc3c8;
-  --neu-shadow-light: #faf6f8;
-  --accent: #b07a8e;
+  --neu-bg: #eaeef0;
+  --neu-shadow-dark: #c4cace;
+  --neu-shadow-light: #f8fbfc;
+  --accent: #6a8a8f;
+  --accent-hover: #5a787d;
 }
 
 .skin-ocean {
@@ -80,6 +92,7 @@
   --neu-shadow-dark: #c8d0d8;
   --neu-shadow-light: #ffffff;
   --accent: #2196f3;
+  --accent-hover: #1976d2;
 }
 
 .dark {
@@ -96,7 +109,7 @@
   --color-pink: #ff6b6b;
   --color-blue: #6bb3ff;
   --color-green: #55cc55;
-  --color-yellow: #f7d883;
+  --color-yellow: #e8b004;
   --neu-bg: #2d2d2d;
   --neu-shadow-dark: #1a1a1a;
   --neu-shadow-light: #3a3a3a;
@@ -113,8 +126,9 @@
   background: var(--neu-bg);
 }
 
-.dark .memo-content-edit {
-  background: #333;
+.dark .memo-content-edit,
+.skin-dark .memo-content-edit {
+  background: color-mix(in srgb, var(--neu-bg) 88%, white);
   border: none;
   color: var(--text-primary);
   box-shadow: inset 3px 3px 6px var(--neu-shadow-dark),
@@ -262,8 +276,12 @@ html, body, #app {
               inset -3px -3px 6px var(--neu-shadow-light);
 }
 
-.nav-btn-settings {
-  font-size: 21px;
+/* 日期导航用汉字，需 inherit 才能拿到全局字体栈（button 默认用 UA 字体，粗体易被合成） */
+.nav-btn-char {
+  font-family: inherit;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .nav-spacer {
@@ -313,6 +331,7 @@ html, body, #app {
 
 .search-box {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   background: var(--neu-bg);
@@ -326,6 +345,7 @@ html, body, #app {
 
 .search-box input {
   flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   color: var(--text-primary);
@@ -357,6 +377,158 @@ html, body, #app {
   white-space: nowrap;
   margin-left: 4px;
   flex-shrink: 0;
+}
+
+/* ── 颜色筛选按钮与弹层 ───────────────────── */
+.color-filter-btn {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: var(--neu-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  will-change: transform;
+  box-shadow: 3px 3px 6px var(--neu-shadow-dark),
+              -3px -3px 6px var(--neu-shadow-light);
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.color-filter-btn:hover {
+  color: var(--text-primary);
+}
+
+/* 按下动效与侧栏垃圾桶按钮（.nav-btn:active）保持一致 */
+.color-filter-btn:active {
+  transform: scale(0.88);
+  transition: transform 0.1s ease;
+  box-shadow: inset 3px 3px 6px var(--neu-shadow-dark),
+              inset -3px -3px 6px var(--neu-shadow-light);
+}
+
+.color-filter-btn.active,
+.color-filter-btn.open {
+  color: var(--accent);
+  box-shadow: inset 3px 3px 6px var(--neu-shadow-dark),
+              inset -3px -3px 6px var(--neu-shadow-light);
+}
+
+.color-filter-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+.color-filter-popup {
+  background: var(--neu-bg);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 136px;
+  z-index: 9999;
+  user-select: none;
+  box-shadow: 4px 4px 8px var(--neu-shadow-dark),
+              -4px -4px 8px var(--neu-shadow-light);
+}
+
+.color-filter-head {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 4px 5px;
+}
+
+.color-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.color-filter-item:hover:not(:disabled) {
+  background: rgba(125, 125, 125, 0.14);
+}
+
+.color-filter-item:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.color-filter-item.active {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 弹层内色点复用 .color-dot 配色，但尺寸更小、不触发放大 hover */
+.color-filter-item .color-dot {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-width: 1px;
+}
+
+.color-filter-item .color-dot:hover {
+  transform: none;
+}
+
+.color-filter-name {
+  flex: 1;
+  text-align: left;
+}
+
+.color-filter-num {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.color-filter-clear {
+  margin-top: 4px;
+  padding: 5px 6px;
+  border: none;
+  border-top: 1px solid rgba(125, 125, 125, 0.2);
+  border-radius: 0 0 6px 6px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.color-filter-clear:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.color-filter-clear:hover:not(:disabled) {
+  background: rgba(125, 125, 125, 0.14);
+}
+
+.color-filter-clear:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 
 /* 搜索高亮标记 */
@@ -888,6 +1060,11 @@ body.is-dragging * {
   cursor: pointer;
 }
 
+/* 加载中占位：地址尚未就绪时显示，避免空 src 的 img 触发 error 误报失败 */
+.memo-thumbnail.is-loading {
+  background: rgba(120, 120, 120, 0.15);
+}
+
 /* 展开态失败占位：撑满宽度，文字居中 */
 .memo-expanded-img.is-broken {
   width: 100%;
@@ -909,6 +1086,20 @@ body.is-dragging * {
   transform: scale(1);
 }
 
+/* 展开态加载中占位 */
+.memo-expanded-img.is-loading {
+  width: 100%;
+  min-height: 80px;
+  border-radius: 8px;
+  background: rgba(120, 120, 120, 0.12);
+  opacity: 0;
+  transform: scale(0.95);
+}
+.memo-expanded-img.is-loading.anim-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
 /* 编辑态失败占位：填满 48×48 缩略图格 */
 .edit-image-broken {
   width: 100%;
@@ -920,6 +1111,13 @@ body.is-dragging * {
   color: rgba(200, 200, 200, 0.8);
   font-size: 16px;
   font-weight: 700;
+}
+
+/* 编辑态加载中占位 */
+.edit-image-loading {
+  width: 100%;
+  height: 100%;
+  background: rgba(120, 120, 120, 0.15);
 }
 
 .memo-thumbnail-more {
@@ -1220,7 +1418,7 @@ body.is-dragging * {
 .shortcut-input {
   width: 100%;
   height: 40px;
-  background: #ffffff;
+  background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
@@ -1238,7 +1436,7 @@ body.is-dragging * {
 
 .shortcut-input.recording {
   border-color: var(--accent);
-  background: #dce4f7;
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-secondary));
 }
 
 .shortcut-hint {
@@ -1551,4 +1749,38 @@ mark {
 }
 .dark .update-notify-close:hover {
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── 皮肤切换圆形展开过渡动画 ── */
+/* View Transitions API: 禁用默认淡入淡出，由 JS Web Animations API 控制圆形展开 */
+::view-transition-old(root) {
+  animation: none;
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  animation: none;
+  z-index: 2;
+}
+
+/* 回退方案：覆盖层动画 */
+.skin-transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+  clip-path: circle(150% at var(--reveal-x, 50%) var(--reveal-y, 50%));
+}
+
+.skin-transition-overlay.animating {
+  animation: skin-overlay-shrink 0.5s ease-in-out forwards;
+}
+
+@keyframes skin-overlay-shrink {
+  from {
+    clip-path: circle(150% at var(--reveal-x, 50%) var(--reveal-y, 50%));
+  }
+  to {
+    clip-path: circle(0% at var(--reveal-x, 50%) var(--reveal-y, 50%));
+  }
 }

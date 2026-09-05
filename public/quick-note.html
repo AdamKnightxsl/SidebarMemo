@@ -23,6 +23,22 @@
       --neu-shadow-dark: #b8bec7;
       --neu-shadow-light: #ffffff;
     }
+    /* Skins */
+    .skin-default { --accent: #6c63ff; --accent-hover: #8a83ff; --neu-bg: #e0e5ec; --neu-shadow-dark: #b8bec7; --neu-shadow-light: #ffffff; }
+    /* 午夜蓝 · 午夜墨蓝底 + 香槟金（与主界面 .skin-dark 保持一致） */
+    .skin-dark {
+      --accent: #c8a563; --accent-hover: #d8b878;
+      --neu-bg: #20242c; --neu-shadow-dark: #14171c; --neu-shadow-light: #2c323c;
+      --bg-primary: #1a1d23; --bg-secondary: #20242c; --bg-card: #262b34; --bg-card-hover: #2e343e;
+      --text-primary: #dfe3e9; --text-secondary: #98a0ac; --text-muted: #6f7681;
+      --border-color: #2f3540;
+    }
+    /* 以下四个皮肤的底色/强调色必须与主界面 style.css .skin-* + App.vue skinAccents 逐值一致 */
+    .skin-warm { --accent: #b87a5a; --accent-hover: #a06a4c; --neu-bg: #f2ede6; --neu-shadow-dark: #d1cbc2; --neu-shadow-light: #fffbf6; }
+    .skin-fresh { --accent: #4caf50; --accent-hover: #43a047; --neu-bg: #e8ebe6; --neu-shadow-dark: #c8cbc3; --neu-shadow-light: #f8faf6; }
+    .skin-pink { --accent: #6a8a8f; --accent-hover: #5a787d; --neu-bg: #eaeef0; --neu-shadow-dark: #c4cace; --neu-shadow-light: #f8fbfc; }
+    .skin-ocean { --accent: #2196f3; --accent-hover: #1976d2; --neu-bg: #e8f0f8; --neu-shadow-dark: #c8d0d8; --neu-shadow-light: #ffffff; }
+    /* 暗色主题放在皮肤之后：与主界面一致，由主题统一覆盖皮肤底色与文字色 */
     .dark {
       --bg-primary: #1a1a1a;
       --bg-secondary: #252525;
@@ -37,18 +53,11 @@
       --neu-shadow-dark: #1a1a1a;
       --neu-shadow-light: #3a3a3a;
     }
-    /* Skins */
-    .skin-default { --accent: #6c63ff; --accent-hover: #8a83ff; --neu-bg: #e0e5ec; --neu-shadow-dark: #b8bec7; --neu-shadow-light: #ffffff; }
-    .skin-dark { --accent: #4a9eff; --accent-hover: #6bb3ff; --neu-bg: #2d2d2d; --neu-shadow-dark: #1a1a1a; --neu-shadow-light: #404040; }
-    .skin-warm { --accent: #e87c3a; --accent-hover: #d06a2a; --neu-bg: #f5f0e8; --neu-shadow-dark: #d4cfc7; --neu-shadow-light: #ffffff; }
-    .skin-fresh { --accent: #7da882; --accent-hover: #6a9670; --neu-bg: #e8ebe6; --neu-shadow-dark: #c8cbc3; --neu-shadow-light: #f8faf6; }
-    .skin-pink { --accent: #b07a8e; --accent-hover: #c48da0; --neu-bg: #f0ecf0; --neu-shadow-dark: #cbc3c8; --neu-shadow-light: #faf6f8; }
-    .skin-ocean { --accent: #2196f3; --accent-hover: #1976d2; --neu-bg: #e3ecf5; --neu-shadow-dark: #c3cfe0; --neu-shadow-light: #ffffff; }
     .dark.skin-default { --accent: #8a83ff; --accent-hover: #a9a3ff; }
-    .dark.skin-dark { --accent: #4a9eff; --accent-hover: #6bb3ff; }
-    .dark.skin-warm { --accent: #f09050; --accent-hover: #e07830; }
+    .dark.skin-dark { --accent: #c8a563; --accent-hover: #d8b878; }
+    .dark.skin-warm { --accent: #c99070; --accent-hover: #b87a5a; }
     .dark.skin-fresh { --accent: #66bb6a; --accent-hover: #57a85c; }
-    .dark.skin-pink { --accent: #f06292; --accent-hover: #e0407a; }
+    .dark.skin-pink { --accent: #88a8ad; --accent-hover: #6a8a8f; }
     .dark.skin-ocean { --accent: #42a5f5; --accent-hover: #2196f3; }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -105,7 +114,7 @@
     .color-indicator[data-c="pink"] { display: block; background: #e74c3c; }
     .color-indicator[data-c="blue"] { display: block; background: #83c7f7; }
     .color-indicator[data-c="green"] { display: block; background: #41b349; }
-    .color-indicator[data-c="yellow"] { display: block; background: #f7d883; }
+    .color-indicator[data-c="yellow"] { display: block; background: #e8b004; }
     /* ── 内容区 ── */
     .content-area {
       flex: 1; min-height: 0; display: flex; flex-direction: column;
@@ -120,7 +129,7 @@
       font-family: inherit;
     }
     .note-textarea::placeholder { color: var(--text-muted); }
-    .dark .note-textarea, .skin-dark .note-textarea { color: #e0e0e0; caret-color: #e0e0e0; }
+    .dark .note-textarea, .skin-dark .note-textarea { color: var(--text-primary); caret-color: var(--text-primary); }
     /* ── 图片区 ── */
     .images-area {
       display: flex; flex-wrap: wrap; gap: 6px;
@@ -132,7 +141,7 @@
       border-radius: 6px; overflow: hidden;
       border: 1px solid var(--border-color);
     }
-    .img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .img-thumb img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
     .img-thumb .remove-img {
       position: absolute; top: 1px; right: 1px;
       width: 16px; height: 16px; border: 0; border-radius: 50%;
@@ -212,7 +221,7 @@
     .color-dot[data-c="pink"] { background: #e74c3c; }
     .color-dot[data-c="blue"] { background: #83c7f7; }
     .color-dot[data-c="green"] { background: #41b349; }
-    .color-dot[data-c="yellow"] { background: #f7d883; }
+    .color-dot[data-c="yellow"] { background: #e8b004; }
     /* 自定义时间 */
     .custom-time-row {
       display: flex; align-items: center; gap: 4px; padding: 4px 6px;
@@ -355,6 +364,7 @@
 
       // ── 重置状态（每次窗口打开时） ──
       function resetState() {
+        saving = false;
         isPinned = false; isDone = false; selectedColor = ""; remindAt = "";
         imageFilenames = []; imageUrls = {};
         noteInput.value = "";
@@ -568,6 +578,20 @@
         reader.readAsDataURL(file);
       }
 
+      // 点击缩略图打开独立预览窗口（复用主界面逻辑）；
+      // 未保存的图片在临时目录 _quick_note（与 quick_note.rs 一致），以该目录名作为 memoId
+      function openImagePreview(filename) {
+        if (!invokeFn || imageFilenames.length === 0) return;
+        var index = imageFilenames.indexOf(filename);
+        invokeFn("open_image_viewer", {
+          payload: {
+            memoId: "_quick_note",
+            filenames: imageFilenames.slice(),
+            index: index < 0 ? 0 : index,
+          },
+        }).catch(function (err) { console.error("open_image_viewer failed:", err); });
+      }
+
       function renderImages() {
         imagesArea.innerHTML = "";
         imageFilenames.forEach(function (fn) {
@@ -575,6 +599,8 @@
           div.className = "img-thumb";
           var img = document.createElement("img");
           img.src = imageUrls[fn] || "";
+          img.title = "点击预览";
+          img.addEventListener("click", function () { openImagePreview(fn); });
           var btn = document.createElement("button");
           btn.className = "remove-img";
           btn.textContent = "×";
@@ -590,6 +616,8 @@
       }
 
       // ── 关闭（保存） ──
+      var saving = false; // 防重入：避免连按/长按 Enter 重复创建备忘
+
       btnClose.addEventListener("click", function () {
         saveAndClose();
       });
@@ -603,6 +631,7 @@
       });
 
       function saveAndClose() {
+        if (saving) return;
         var content = noteInput.value.trim();
         if (!content && imageFilenames.length === 0) {
           // 空内容直接关闭
@@ -610,6 +639,7 @@
           return;
         }
         if (!invokeFn) return;
+        saving = true;
         invokeFn("save_quick_note", {
           content: content,
           color: selectedColor,
@@ -619,6 +649,7 @@
           images: imageFilenames,
         }).catch(function (err) {
           console.error("save_quick_note failed:", err);
+          saving = false; // 失败允许重试
           // 兜底：仅关闭
           invokeFn("close_quick_note").catch(function(){});
         });
@@ -651,6 +682,12 @@
           if (t.event && t.event.listen) {
             t.event.listen("quick-note-opened", function (event) {
               resetState();
+              if (event && event.payload) {
+                applyTheme(event.payload);
+              }
+            });
+            // 主窗口改主题/皮肤时实时更新：只换类名，不能 resetState（会清掉正在写的内容）
+            t.event.listen("theme-changed", function (event) {
               if (event && event.payload) {
                 applyTheme(event.payload);
               }

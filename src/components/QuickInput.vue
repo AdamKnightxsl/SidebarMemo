@@ -73,7 +73,7 @@ defineExpose({ focus });
 
 <template>
   <div class="quick-input-area">
-    <button class="template-btn" ref="templateBtnRef" @click="showTemplates = !showTemplates; if (showTemplates) updateMenuPos()" title="插入模板">
+    <button class="template-btn" :class="{ open: showTemplates }" ref="templateBtnRef" @click="showTemplates = !showTemplates; if (showTemplates) updateMenuPos()" title="插入模板">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
         <polyline points="14 2 14 8 20 8"/>
@@ -92,7 +92,7 @@ defineExpose({ focus });
       >{{ t.name }}</button>
     </div>
     </Teleport>
-    <div class="quick-input-wrap">
+    <div class="quick-input-wrap" data-tour="quick-input-box">
       <textarea
         ref="textarea"
         v-model="text"
@@ -132,16 +132,25 @@ defineExpose({ focus });
   justify-content: center;
   background: var(--neu-bg, #e0e5ec);
   color: var(--text-secondary, #888);
+  will-change: transform;
   box-shadow: 2px 2px 4px var(--neu-shadow-dark, #b8bec7),
               -2px -2px 4px var(--neu-shadow-light, #ffffff);
-  transition: box-shadow 0.2s, color 0.2s;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   z-index: 1;
   flex-shrink: 0;
 }
 .template-btn:hover {
   color: var(--accent, #6c63ff);
 }
+/* 按下动效与侧栏垃圾桶按钮（.nav-btn:active）保持一致 */
 .template-btn:active {
+  transform: scale(0.88);
+  transition: transform 0.1s ease;
+  box-shadow: inset 2px 2px 4px var(--neu-shadow-dark, #b8bec7),
+              inset -2px -2px 4px var(--neu-shadow-light, #ffffff);
+}
+.template-btn.open {
+  color: var(--accent, #6c63ff);
   box-shadow: inset 2px 2px 4px var(--neu-shadow-dark, #b8bec7),
               inset -2px -2px 4px var(--neu-shadow-light, #ffffff);
 }
