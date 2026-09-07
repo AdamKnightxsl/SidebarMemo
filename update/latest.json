@@ -1,11 +1,11 @@
 {
-  "version": "1.0.8",
-  "notes": "新增分步操作引导与颜色筛选，主题皮肤实时同步快捷便签，优化提醒通知可靠性与界面样式",
-  "pub_date": "2026-09-05T20:46:45.543Z",
+  "version": "1.0.9",
+  "notes": "新增便签所见即所得编辑、集合与归档、标签筛选与待办勾选、重复提醒、开机自启和数据导入导出",
+  "pub_date": "2026-09-07T20:45:14.213Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYlZ5STd3ZkxHRG51dkhrT0ZIay84RXB0b0VNbUVSVXRHUHErNmhBeUh4Tmd1K3R4UndxSktUVlE3Yk12SE1DNmhBTW5hOHA3ZEMrMXJMczNiZ1h3blFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NjQxMTk3CWZpbGU6U2lkZWJhciBNZW1vXzEuMC44X3g2NC1zZXR1cC5leGUKY0wvcTVVMzlVMU4rZjFvN0ZTa0hBMDBGeGxkSy9sSmxLalhuS21HZWoxY2FBcVQxNmlTSlgxN1AzaWtXZk1EdjJCMzhnRS9ab1F4MlZ0bThTNEdVQkE9PQo=",
-      "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.8/Sidebar.Memo_1.0.8_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYmQyV3p2ZWVqalpNTm9SYWFDMko1eWw5MzBGMGt2U3VUMWlTNnAxeFN6enczaHdNRmJ5UlJhU1FmeHpFYlFJc0YzMHFxTzJxNWdwYXFSd2JLZTk0ZXdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4ODEzOTA2CWZpbGU6U2lkZWJhciBNZW1vXzEuMC45X3g2NC1zZXR1cC5leGUKY1h6UzFYWEVKWGp4clgyek1oS0ZCYjhSMW9JRzVRMXZwYUE5STdSbkZod2xpejVrS1IvSWdTT0Z2c0phTG5IV3dCVS9ka21XWFdkTURZZ242Z1hJQ3c9PQo=",
+      "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.9/Sidebar.Memo_1.0.9_x64-setup.exe"
     }
   }
 }
