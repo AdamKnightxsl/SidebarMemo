@@ -1,6 +1,14 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// 快捷输入区的正文模板。content 里的 {date} / {time} 由前端在插入时替换，
+/// 存字符串而不是让前端记一份生成逻辑，用户改模板时才有唯一的来源。
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MemoTemplate {
+    pub name: String,
+    pub content: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
     pub shortcut: String,
@@ -23,10 +31,25 @@ pub struct Settings {
     pub note_width: Option<u32>,
     #[serde(default)]
     pub note_height: Option<u32>,
+    /// 快捷便签上次存进的集合，下次打开默认沿用。存 id 而不是名字：集合改名后这个值仍然有效
+    #[serde(default)]
+    pub note_board: String,
+    /// 未置顶且这么久没动过的便签自动进垃圾桶，0 = 关闭自动清理。
+    /// 默认 3 与改造前硬编码的策略一致，老配置文件缺字段时行为不变。
+    #[serde(default = "default_auto_trash_days")]
+    pub auto_trash_days: i64,
+    /// 开机自启。默认关，需要用户在设置里主动打开。
+    #[serde(default)]
+    pub auto_start: bool,
+    /// None = 从没改过模板，前端用内置默认；Some([]) = 用户自己删光了，那就真没有模板。
+    /// 两者不能合并成一个空数组，否则「删光」这个动作会被默认模板复活覆盖掉。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub templates: Option<Vec<MemoTemplate>>,
 }
 
 fn default_true() -> bool { true }
 fn default_note_shortcut() -> String { "Alt+N".into() }
+fn default_auto_trash_days() -> i64 { 3 }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -42,6 +65,10 @@ impl Default for Settings {
             note_shortcut: "Alt+N".into(),
             note_width: None,
             note_height: None,
+            note_board: String::new(),
+            auto_trash_days: 3,
+            auto_start: false,
+            templates: None,
         }
     }
 }
@@ -213,4 +240,61 @@ pub(crate) fn toggle_always_on_top(app: AppHandle, state: tauri::State<crate::Ap
         let _ = w.set_always_on_top(new_val);
     }
     Ok(new_val)
+}
+
+/// 自动清理天数，0 = 关闭。返回实际生效值（已钳位），前端据此回填 UI。
+#[tauri::command]
+pub(crate) fn set_auto_trash_days(state: tauri::State<crate::AppState>, days: i64) -> Result<i64, String> {
+    let applied = {
+        let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.auto_trash_days = days.clamp(0, 3650);
+        save_settings(&settings).map_err(|e| e.to_string())?;
+        settings.auto_trash_days
+    };
+    Ok(applied)
+}
+
+/// 开机自启：先写注册表，成功了才落到 settings。
+/// 顺序反过来的话，注册表被组策略拦下时界面会显示一个并未真正生效的开关。
+#[tauri::command]
+pub(crate) fn set_auto_start(state: tauri::State<crate::AppState>, enabled: bool) -> Result<bool, String> {
+    crate::autostart::set_autostart(enabled)?;
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    settings.auto_start = enabled;
+    save_settings(&settings).map_err(|e| e.to_string())?;
+    diag(&format!("AUTOSTART enabled={}", enabled));
+    Ok(enabled)
+}
+
+/// 模板改了要立刻推给快捷便签窗口：那边的菜单靠打开事件带过去的列表画，
+/// 窗口可能正开着，不推就得等用户关掉再开一次才能看到新模板
+fn notify_quick_note_templates(app: &AppHandle, templates: &[MemoTemplate]) {
+    if let Some(w) = app.get_webview_window("quick-note") {
+        let _ = w.emit("templates-changed", serde_json::json!({ "templates": templates }));
+    }
+}
+
+/// 模板整表覆盖保存：条数不定，逐条增删的接口反而容易和前端不同步。
+/// 上限只是防止一份异常文件把快捷输入弹层撑坏，正常编辑远碰不到。
+#[tauri::command]
+pub(crate) fn set_templates(
+    state: tauri::State<crate::AppState>,
+    app: AppHandle,
+    templates: Vec<MemoTemplate>,
+) -> Result<(), String> {
+    if templates.len() > 30 {
+        return Err("模板最多 30 条".into());
+    }
+    if templates.iter().any(|t| t.content.chars().count() > 5000) {
+        return Err("单个模板内容不能超过 5000 字".into());
+    }
+    let count = templates.len();
+    {
+        let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.templates = Some(templates.clone());
+        save_settings(&settings).map_err(|e| e.to_string())?;
+        diag(&format!("TEMPLATES saved count={}", count));
+    }
+    notify_quick_note_templates(&app, &templates);
+    Ok(())
 }

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { usePopupPosition } from "../composables/usePopupPosition";
 import { useClickOutside } from "../composables/useClickOutside";
-import { isComposing } from "../utils";
+import { settings } from "../composables/useSettings";
+import { isComposing, DEFAULT_TEMPLATES, fillTemplateVars, type MemoTemplate } from "../utils";
 
 const emit = defineEmits<{
   submit: [content: string];
@@ -20,17 +21,11 @@ useClickOutside({
   eventType: "mousedown",
 });
 
-const templates = [
-  { name: '待办清单', content: '## 待办\n- [ ] ' },
-  { name: '订单记录', content: () => '## 订单记录\n**日期：** ' + new Date().toLocaleDateString('zh-CN') + '\n**订单号：**\n**平台：** 抖音\n**商品：**\n**金额：**\n**买家ID：**\n\n### 订单状态\n- [ ] 已发货\n- [ ] 已签收\n- [ ] 已完成\n\n### 备注\n' },
-  { name: '售后记录', content: () => '## 售后记录\n**日期：** ' + new Date().toLocaleDateString('zh-CN') + '\n**订单号：**\n**商品：**\n**售后类型：** 退款/退货/换货/补偿\n\n### 问题描述\n\n### 处理方案\n\n### 处理结果\n- [ ] 已处理\n- [ ] 待跟进\n' },
-  { name: '日记', content: () => '## ' + new Date().toLocaleDateString('zh-CN') + '\n\n### 今天做了\n\n### 感悟\n' },
-  { name: '读书笔记', content: '## 《书名》\n\n### 核心观点\n\n### 金句\n\n### 感想\n' },
-  { name: '项目计划', content: '## 项目计划\n\n### 目标\n\n### 步骤\n1. \n2. \n3. \n\n### 截止日期\n' },
-];
+// 模板内容在设置页可改；templates 为 null 表示从没改过，用内置那一套
+const templates = computed<MemoTemplate[]>(() => settings.value.templates ?? DEFAULT_TEMPLATES);
 
-function selectTemplate(content: string | (() => string)) {
-  text.value = typeof content === 'function' ? content() : content;
+function selectTemplate(content: string) {
+  text.value = fillTemplateVars(content);
   showTemplates.value = false;
   nextTick(() => { autoResize(); textarea.value?.focus(); });
 }
@@ -85,11 +80,12 @@ defineExpose({ focus });
     <Teleport to="body">
       <div v-if="showTemplates" class="template-menu" :style="menuStyle" @click.stop>
       <button
-        v-for="t in templates"
-        :key="t.name"
+        v-for="(t, i) in templates"
+        :key="i"
         class="template-item"
         @click="selectTemplate(t.content)"
       >{{ t.name }}</button>
+      <div v-if="!templates.length" class="template-empty">还没有模板，可在「设置 › 正文模板」里添加</div>
     </div>
     </Teleport>
     <div class="quick-input-wrap" data-tour="quick-input-box">
@@ -164,6 +160,15 @@ defineExpose({ focus });
   padding: 4px;
   z-index: 999999;
   min-width: 120px;
+  /* 条数由用户定，不限高会把向上展开的弹层顶出窗口 */
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.template-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--text-muted, #999);
 }
 .template-item {
   display: block;

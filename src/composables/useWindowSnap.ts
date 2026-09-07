@@ -637,7 +637,11 @@ export function useWindowSnap() {
     await trySnap(pos.x, pos.y);
   }
 
-  function onDoubleClickHide() {
+  function onDoubleClickHide(e: Event) {
+    const t = e.target as HTMLElement | null;
+    // 导航按钮上的连点是在切视图，不该被当成标题栏双击隐藏；
+    // 集合命名弹框还开着就隐藏窗口，输入会直接丢掉
+    if (t?.closest?.(".nav-btn") || document.querySelector(".board-naming")) return;
     if (state === "visible" && snappedEdge.value) {
       hideToEdge();
     }

@@ -18,6 +18,20 @@
   --color-green: #41b349;
   --color-yellow: #e8b004;
 
+  /* 集合归属色：键名与 db.rs 的 BOARD_COLORS 一一对应。
+     与皮肤正交，所以只写在 :root 与 .dark 两处、不进任何 .skin-* 块；
+     也不许借用 --accent（applyAccent 会把它内联写到 <html>，整棵子树跟着重新染色） */
+  --board-coral: #d1483b;
+  --board-amber: #c1730a;
+  --board-lemon: #8f7a06;
+  --board-grass: #2b8a3e;
+  --board-teal: #0c807a;
+  --board-sky: #2478b8;
+  --board-indigo: #4553b8;
+  --board-violet: #8a46b8;
+  --board-magenta: #c0337c;
+  --board-clay: #9a5f2e;
+
   --radius: 8px;
   --radius-sm: 4px;
   --transition: 0.15s ease;
@@ -110,6 +124,17 @@
   --color-blue: #6bb3ff;
   --color-green: #55cc55;
   --color-yellow: #e8b004;
+  /* 集合色深色档：整体提亮，保证在 --neu-bg(#2d2d2d) 上作文字仍读得清 */
+  --board-coral: #ff7d6e;
+  --board-amber: #f0a745;
+  --board-lemon: #e3cc4f;
+  --board-grass: #5fd071;
+  --board-teal: #3fd0c4;
+  --board-sky: #5cb8f2;
+  --board-indigo: #93a1ff;
+  --board-violet: #c58bff;
+  --board-magenta: #f774b4;
+  --board-clay: #d99a62;
   --neu-bg: #2d2d2d;
   --neu-shadow-dark: #1a1a1a;
   --neu-shadow-light: #3a3a3a;
@@ -339,6 +364,7 @@ html, body, #app {
   border-radius: 10px;
   padding: 0 12px;
   height: 36px;
+  user-select: none;
   box-shadow: inset 3px 3px 6px var(--neu-shadow-dark),
               inset -3px -3px 6px var(--neu-shadow-light);
 }
@@ -351,10 +377,13 @@ html, body, #app {
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
+  /* 框体不可选，但已输入的关键词仍要能用鼠标选取 */
+  user-select: text;
 }
 
 .search-box input::placeholder {
   color: var(--text-muted);
+  user-select: none;
 }
 
 .search-clear {
@@ -449,10 +478,54 @@ html, body, #app {
               -4px -4px 8px var(--neu-shadow-light);
 }
 
-.color-filter-head {
-  font-size: 11px;
+/* 弹层顶部「颜色 / 标签」分段：内凹轨道 + 浮起滑块，滑块靠 translateX 滑动 */
+.filter-tabs {
+  position: relative;
+  display: flex;
+  padding: 2px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  box-shadow: inset 2px 2px 4px var(--neu-shadow-dark),
+              inset -2px -2px 4px var(--neu-shadow-light);
+}
+
+.filter-tab {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 4px 0;
+  border-radius: 6px;
   color: var(--text-muted);
-  padding: 2px 4px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.filter-tab.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* 两段等宽，滑块宽度直接取一半，不用每次量 DOM */
+.filter-tab-pill {
+  position: absolute;
+  z-index: 0;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  border-radius: 6px;
+  background: var(--bg-card);
+  box-shadow: 2px 2px 4px var(--neu-shadow-dark),
+              -1px -1px 3px var(--neu-shadow-light);
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.filter-tab-pill.is-tag {
+  transform: translateX(100%);
 }
 
 .color-filter-item {
@@ -541,6 +614,102 @@ mark {
 .dark mark {
   background: rgba(255, 224, 102, 0.35) !important;
   color: var(--text-primary) !important;
+}
+
+/* ── 正文行内 #标签：点击即按该标签筛选 ── */
+.md-tag {
+  color: var(--accent);
+  background: rgba(125, 125, 125, 0.13);
+  border-radius: 4px;
+  padding: 0 3px;
+  margin: 0 1px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition), color var(--transition);
+}
+
+.md-tag:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── 正文行内子任务：点一下就把正文里的 [ ] 改成 [x] ── */
+.md-task {
+  position: relative;
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 3px;
+  vertical-align: -2px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-card);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.md-task:hover {
+  border-color: var(--accent);
+}
+
+.md-task.done {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 对勾用两条边框转出来，不依赖字体和图标资源 */
+.md-task.done::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.markdown-body li:has(> .md-task.done),
+.markdown-body li > p:has(> .md-task.done) {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+/* 整条备忘已完成时正文不可编辑，复选框也跟着不可点，点击回到展开／收起 */
+.memo-card.is-done .md-task {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* 合并后颜色与标签共用一个弹层。宽度必须写死：
+   颜色列表按内容排、标签空状态那句长文案按 max-content 排，
+   用 min/max 的话切分段时弹层会肉眼可见地变宽。长标签名有省略号，撑不开。 */
+.filter-popup {
+  width: 176px;
+}
+
+/* 标签个数不可预知，限高滚动而不是把弹层撑出窗口 */
+.tag-filter-scroll {
+  max-height: 216px;
+  overflow-y: auto;
+}
+
+.tag-filter-item .tag-filter-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-filter-empty {
+  padding: 2px 6px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-muted);
 }
 
 .add-btn {
@@ -762,6 +931,57 @@ body.is-dragging * {
   border-left: 4px solid var(--color-yellow);
 }
 
+/* 集合归属色映射：库里存键名，这里换成局部变量 --board-color，
+   消费方（导航按钮 / 卡片标签 / 色点）只读这一个名字，不用各自维护一份对照表 */
+[data-board-color="coral"]   { --board-color: var(--board-coral); }
+[data-board-color="amber"]   { --board-color: var(--board-amber); }
+[data-board-color="lemon"]   { --board-color: var(--board-lemon); }
+[data-board-color="grass"]   { --board-color: var(--board-grass); }
+[data-board-color="teal"]    { --board-color: var(--board-teal); }
+[data-board-color="sky"]     { --board-color: var(--board-sky); }
+[data-board-color="indigo"]  { --board-color: var(--board-indigo); }
+[data-board-color="violet"]  { --board-color: var(--board-violet); }
+[data-board-color="magenta"] { --board-color: var(--board-magenta); }
+[data-board-color="clay"]    { --board-color: var(--board-clay); }
+
+/* 底色仍是中性的，只有文字换成集合色：标签夹在时间和提醒角标之间，不能抢内容 */
+.memo-board[data-board-color] {
+  color: var(--board-color);
+}
+.memo-board[data-board-color]:hover {
+  color: var(--board-color);
+}
+
+/* 集合视图标题：导航按钮只显示前 4 个字，完整名称与条数在这一条里看 */
+.board-title {
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px 6px;
+}
+
+.board-title-name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-title[data-board-color] .board-title-name {
+  color: var(--board-color);
+}
+
+.board-title-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .memo-header {
   display: flex;
   justify-content: space-between;
@@ -791,6 +1011,43 @@ body.is-dragging * {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+/* 提醒时间角标：铃铛按钮只有 hover 才出现，列表里要能直接看到几点有事 */
+.memo-remind {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: rgba(125, 125, 125, 0.12);
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+/* 集合标签：与 .memo-remind 同一套尺寸，但可点击跳到对应集合 */
+.memo-board {
+  min-width: 0;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: rgba(125, 125, 125, 0.12);
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 16px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.memo-board:hover {
+  background: rgba(125, 125, 125, 0.2);
+  color: var(--accent-hover);
 }
 
 .memo-header-actions {
@@ -949,6 +1206,100 @@ body.is-dragging * {
   color: var(--danger);
 }
 
+.memo-context-menu {
+  position: fixed;
+  min-width: 128px;
+  background: var(--neu-bg);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 10000;
+  box-shadow: 4px 4px 8px var(--neu-shadow-dark),
+              -4px -4px 8px var(--neu-shadow-light);
+}
+
+.memo-context-menu button {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+}
+
+.memo-context-menu button:hover {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: inset 1px 1px 3px var(--neu-shadow-dark),
+              inset -1px -1px 3px var(--neu-shadow-light);
+}
+
+.memo-context-menu button.danger {
+  color: var(--danger);
+}
+
+/* 集合二级：当前所属那一条要能一眼看出来 */
+.memo-context-menu button.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.memo-context-sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--neu-shadow-dark);
+  opacity: 0.6;
+}
+
+/* 右键菜单「添加标签」：# 写死在框外当提示，输入框里只填标签名 */
+.memo-context-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 4px 4px;
+  padding: 0 6px;
+  height: 28px;
+  border-radius: 4px;
+  box-shadow: inset 2px 2px 4px var(--neu-shadow-dark),
+              inset -2px -2px 4px var(--neu-shadow-light);
+}
+
+.memo-context-input-prefix {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.memo-context-input {
+  /* 不写宽度会被 input 默认 size=20 撑到 ~170px，菜单展开前后宽度会跳 */
+  width: 88px;
+  flex: none;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.memo-context-input::placeholder {
+  color: var(--text-muted);
+}
+
+.memo-context-input-row:focus-within {
+  box-shadow: inset 2px 2px 4px var(--neu-shadow-dark),
+              inset -2px -2px 4px var(--neu-shadow-light),
+              0 0 0 1.5px var(--accent);
+}
+
 .custom-time-row {
   display: flex;
   gap: 4px;
@@ -986,6 +1337,32 @@ body.is-dragging * {
 
 .custom-time-confirm:hover {
   background: var(--accent-hover) !important;
+}
+
+/* 提醒菜单里的重复规则一行 */
+.reminder-repeat-row {
+  display: flex;
+  gap: 3px;
+  margin-top: 3px;
+  padding: 5px 0 1px;
+  border-top: 1px solid rgba(125, 125, 125, 0.2);
+}
+
+.reminder-menu .reminder-repeat-btn {
+  width: auto;
+  flex: 1;
+  padding: 4px 0;
+  text-align: center;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.reminder-menu .reminder-repeat-btn.active {
+  color: var(--accent);
+  background: rgba(125, 125, 125, 0.1);
+  box-shadow: inset 1px 1px 3px var(--neu-shadow-dark),
+              inset -1px -1px 3px var(--neu-shadow-light);
 }
 
 .memo-content {
@@ -1233,13 +1610,22 @@ body.is-dragging * {
 }
 
 .edit-paste-hint {
-  text-align: right;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 8px;
   font-size: 10px;
   color: var(--text-muted);
   margin-top: 4px;
   opacity: 0.7;
   pointer-events: none;
   user-select: none;
+}
+
+/* 时间靠行首，Ctrl+V 提示仍靠行尾；日期不能拆成两行 */
+.edit-paste-hint .edit-last-edited {
+  margin-right: auto;
+  white-space: nowrap;
 }
 
 .memo-content-edit {
@@ -1257,6 +1643,191 @@ body.is-dragging * {
   resize: vertical;
   min-height: 60px;
   font-family: inherit;
+}
+
+/* ── 所见即所得编辑区 ───────────────────────
+   内容由 marked 渲染而来，字号与列表样式对齐查看态的 .markdown-body */
+.md-editor {
+  overflow-y: visible;
+  resize: none;
+  cursor: text;
+}
+
+.md-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+}
+
+.md-editor h1,
+.md-editor h2,
+.md-editor h3 {
+  margin: 6px 0 4px;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.md-editor h1 { font-size: 17px; }
+.md-editor h2 { font-size: 15px; }
+.md-editor h3 { font-size: 14px; }
+
+.md-editor p { margin: 0 0 6px; }
+.md-editor > :last-child { margin-bottom: 0; }
+
+.md-editor ul,
+.md-editor ol {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
+
+.md-editor li { margin: 1px 0; }
+
+.md-editor u { text-decoration: underline; }
+.md-editor del { text-decoration: line-through; }
+.md-editor a { color: var(--accent); }
+
+.md-editor code,
+.md-editor pre {
+  background: rgba(125, 125, 125, 0.16);
+  border-radius: 3px;
+}
+
+.md-editor code { padding: 0 3px; }
+
+.md-editor pre {
+  margin: 0 0 6px;
+  padding: 6px;
+  white-space: pre-wrap;
+}
+
+.md-editor blockquote {
+  margin: 0 0 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent);
+  color: var(--text-secondary);
+}
+
+/* 编辑态的复选框对齐查看态的 .md-task，同一条正文两种视图不该跳变 */
+.md-editor input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  margin: 0 3px 0 0;
+  vertical-align: -2px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-card);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+}
+
+.md-editor input[type="checkbox"]:hover {
+  border-color: var(--accent);
+}
+
+.md-editor input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 对勾同样用两条边框转出来，和 .md-task.done::after 一致 */
+.md-editor input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ── 编辑区下方的 markdown 工具栏 ───────────
+   无框，只在 hover 时给一层项目通用的中性淡背景（同 .color-filter-item） */
+.md-toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 2px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+/* 图片多到一行放不下 2×3 时，整条挪到图片上方排一行 */
+.md-toolbar.is-row {
+  grid-template-columns: repeat(6, auto);
+  margin: 6px 0 0;
+}
+
+.md-tool {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 5px;
+  height: 24px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.md-tool:hover:not(:disabled) {
+  background: rgba(125, 125, 125, 0.14);
+  color: var(--text-primary);
+}
+
+.md-tool:active:not(:disabled) {
+  box-shadow: inset 1px 1px 3px var(--neu-shadow-dark),
+              inset -1px -1px 3px var(--neu-shadow-light);
+}
+
+.md-tool:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.md-tool.open {
+  color: var(--accent);
+  background: rgba(125, 125, 125, 0.14);
+}
+
+/* 标题三选一：向上展开，字号直接按该级别的真实大小显示 */
+.md-heading-menu {
+  position: fixed;
+  transform: translateY(-100%);
+  background: var(--neu-bg);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  z-index: 10000;
+  user-select: none;
+  box-shadow: 4px 4px 8px var(--neu-shadow-dark),
+              -4px -4px 8px var(--neu-shadow-light);
+}
+
+.md-heading-menu button {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.md-heading-menu button:hover {
+  background: rgba(125, 125, 125, 0.14);
+}
+
+.md-heading-sample {
+  display: block;
+  line-height: 1.4;
+  font-weight: 700;
 }
 
 /* ── Color Picker Popup ───────────────────── */
@@ -1464,6 +2035,14 @@ body.is-dragging * {
 
 .empty-text {
   font-size: 13px;
+}
+
+.empty-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  opacity: 0.7;
+  text-align: center;
+  padding: 0 28px;
 }
 
 /* ── Delete Animation ─────────────────────── */

@@ -84,10 +84,21 @@
     .title-bar .title-text {
       font-size: 12px; color: var(--text-muted); font-weight: 500;
       pointer-events: none;
+      /* 集合名靠右显示，窗口缩到最小 260px 时挤不动的是「快捷便签」这四个字，不是按钮 */
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .title-actions {
-      display: flex; align-items: center; gap: 2px;
+      display: flex; align-items: center; gap: 2px; flex-shrink: 0;
     }
+    /* 当前落点的集合名：选中才显示，最多 4 个字宽，完整名靠 title */
+    .board-indicator {
+      max-width: 58px; padding: 1px 5px; border-radius: 5px;
+      background: rgba(128,128,128,0.14); color: var(--accent);
+      font-size: 10px; line-height: 14px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      display: none;
+    }
+    .board-indicator.show { display: inline-block; }
     .title-btn {
       width: 26px; height: 26px; border: 0; border-radius: 6px;
       background: transparent; color: var(--text-secondary);
@@ -116,18 +127,40 @@
     .color-indicator[data-c="green"] { display: block; background: #41b349; }
     .color-indicator[data-c="yellow"] { display: block; background: #e8b004; }
     /* ── 内容区 ── */
+    /* 滚动条不画在滚动容器里，放在这一层定位盒上，才不会跟着内容一起滚 */
+    .content-wrap {
+      flex: 1; min-height: 0; position: relative; display: flex;
+    }
     .content-area {
-      flex: 1; min-height: 0; display: flex; flex-direction: column;
+      flex: 1; min-width: 0; display: flex; flex-direction: column;
       padding: 10px 12px 8px;
       overflow-y: auto;
+      scrollbar-width: none;
     }
+    .content-area::-webkit-scrollbar { display: none; }
+    /* 自定义滚动条：与主界面 .memo-scroll-track / .memo-scroll-thumb 同名同尺寸，改样式时两处一起搜得到 */
+    .memo-scroll-track {
+      position: absolute; top: 0; right: 2px; bottom: 0; width: 6px;
+      pointer-events: none; opacity: 0; transition: opacity 0.3s ease; z-index: 20;
+    }
+    .memo-scroll-track.visible { opacity: 1; }
+    .memo-scroll-thumb {
+      position: absolute; right: 0; width: 6px; min-height: 20px;
+      background: rgba(0, 0, 0, 0.15); border-radius: 3px;
+      pointer-events: auto; cursor: grab;
+    }
+    .memo-scroll-thumb:active { cursor: grabbing; }
+    .dark .memo-scroll-thumb { background: rgba(255, 255, 255, 0.35); }
+    .skin-dark .memo-scroll-thumb { background: rgba(255, 255, 255, 0.35); }
     .note-textarea {
       flex: 1; min-height: 60px; width: 100%;
       border: none; outline: none; resize: none;
       background: transparent; color: var(--text-primary);
       font-size: 14px; line-height: 1.6;
       font-family: inherit;
+      scrollbar-width: none;
     }
+    .note-textarea::-webkit-scrollbar { display: none; }
     .note-textarea::placeholder { color: var(--text-muted); }
     .dark .note-textarea, .skin-dark .note-textarea { color: var(--text-primary); caret-color: var(--text-primary); }
     /* ── 图片区 ── */
@@ -179,6 +212,8 @@
       display: none;
     }
     .popup-menu.show { display: block; }
+    /* 集合最多 10 个，加上「普通便签」比最矮的 200px 窗口还高，超出就给滚动而不是裁掉 */
+    #board-menu { max-height: calc(100vh - 8px); overflow-y: auto; }
     .popup-menu button {
       display: block; width: 100%; padding: 7px 14px;
       border: 0; border-radius: 5px; background: none;
@@ -186,6 +221,9 @@
       cursor: pointer; text-align: left; white-space: nowrap;
     }
     .popup-menu button:hover { background: rgba(128,128,128,0.1); }
+    .popup-menu .menu-hint {
+      padding: 4px 14px 6px; font-size: 11px; color: var(--text-muted);
+    }
     .popup-menu button.danger { color: var(--danger); }
     .popup-menu.template-popup {
       background: var(--neu-bg); border: none;
@@ -249,6 +287,12 @@
     <div class="title-bar" id="title-bar">
       <span class="title-text">快捷便签</span>
       <div class="title-actions">
+        <button class="title-btn" id="btn-board" title="存入集合">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/>
+          </svg>
+        </button>
+        <span class="board-indicator" id="board-indicator"></span>
         <button class="title-btn" id="btn-pin" title="置顶">📌</button>
         <button class="title-btn" id="btn-color" title="标记颜色">🎨</button>
         <button class="title-btn" id="btn-reminder" title="设置提醒">
@@ -260,9 +304,12 @@
         <button class="title-btn close-btn" id="btn-close" title="保存并关闭">✕</button>
       </div>
     </div>
-    <div class="content-area">
-      <textarea class="note-textarea" id="note-input" placeholder="输入备忘内容…&#10;Shift+Enter 换行"></textarea>
-      <div class="images-area" id="images-area"></div>
+    <div class="content-wrap">
+      <div class="content-area">
+        <textarea class="note-textarea" id="note-input" placeholder="输入备忘内容…&#10;Shift+Enter 换行"></textarea>
+        <div class="images-area" id="images-area"></div>
+      </div>
+      <div class="memo-scroll-track" id="scroll-track"><div class="memo-scroll-thumb" id="scroll-thumb"></div></div>
     </div>
     <div class="bottom-bar">
       <div class="bottom-bar-left">
@@ -285,15 +332,11 @@
     </div>
   </div>
 
-  <!-- 模板菜单 -->
-  <div class="popup-menu template-popup" id="template-menu">
-    <button data-tpl="todo">待办清单</button>
-    <button data-tpl="order">订单记录</button>
-    <button data-tpl="aftersale">售后记录</button>
-    <button data-tpl="diary">日记</button>
-    <button data-tpl="reading">读书笔记</button>
-    <button data-tpl="project">项目计划</button>
-  </div>
+  <!-- 模板菜单：条目由主进程推来的 settings.templates 生成，与主界面同一份来源 -->
+  <div class="popup-menu template-popup" id="template-menu"></div>
+
+  <!-- 集合选择菜单：条目由 quick-note-opened 带过来的列表生成 -->
+  <div class="popup-menu" id="board-menu"></div>
 
   <!-- 颜色选择器 -->
   <div class="color-picker" id="color-picker">
@@ -331,11 +374,21 @@
       var remindAt = "";
       var imageFilenames = [];
       var imageUrls = {}; // filename -> dataURL
+      /** 集合列表与上次落点，每次 quick-note-opened 由 Rust 重新推一遍（主窗口改集合不发事件） */
+      var boardList = [];
+      var rememberedBoard = "";
+      var selectedBoard = "";
 
       // ── DOM ──
       var noteInput = document.getElementById("note-input");
       var imagesArea = document.getElementById("images-area");
+      var contentArea = document.querySelector(".content-area");
+      var scrollTrack = document.getElementById("scroll-track");
+      var scrollThumb = document.getElementById("scroll-thumb");
       var btnPin = document.getElementById("btn-pin");
+      var btnBoard = document.getElementById("btn-board");
+      var boardIndicator = document.getElementById("board-indicator");
+      var boardMenu = document.getElementById("board-menu");
       var btnColor = document.getElementById("btn-color");
       var btnReminder = document.getElementById("btn-reminder");
       var btnClose = document.getElementById("btn-close");
@@ -362,11 +415,49 @@
         return crypto.randomUUID() + "." + ext;
       }
 
+      // ── 自定义滚动条（逻辑与主界面 MemoListView.setupScrollbar 一致：滚动时显示，停止 800ms 淡出） ──
+      var scrollbarHideTimer = null;
+
+      /** 正文太长是 textarea 自己滚，图片太多是外层 content-area 滚，取真正溢出的那个 */
+      function scrollSource() {
+        if (noteInput.scrollHeight > noteInput.clientHeight) return noteInput;
+        if (contentArea.scrollHeight > contentArea.clientHeight) return contentArea;
+        return null;
+      }
+
+      function updateThumb() {
+        var el = scrollSource();
+        if (!el) {
+          scrollTrack.classList.remove("visible");
+          return;
+        }
+        var clientH = el.clientHeight;
+        var scrollH = el.scrollHeight;
+        var ratio = clientH / scrollH;
+        var thumbH = Math.max(20, clientH * ratio);
+        var thumbTop = (el.scrollTop / (scrollH - clientH)) * (clientH - thumbH);
+        scrollThumb.style.height = thumbH + "px";
+        scrollThumb.style.top = thumbTop + "px";
+        scrollTrack.classList.add("visible");
+        if (scrollbarHideTimer) clearTimeout(scrollbarHideTimer);
+        scrollbarHideTimer = setTimeout(function () {
+          scrollTrack.classList.remove("visible");
+        }, 800);
+      }
+
+      noteInput.addEventListener("scroll", updateThumb);
+      contentArea.addEventListener("scroll", updateThumb);
+      // 窗口可拖拽改尺寸，高度一变 thumb 的比例就得重算
+      window.addEventListener("resize", updateThumb);
+
       // ── 重置状态（每次窗口打开时） ──
       function resetState() {
         saving = false;
         isPinned = false; isDone = false; selectedColor = ""; remindAt = "";
         imageFilenames = []; imageUrls = {};
+        // 落点默认沿用上次那次选择，不是每次回到普通便签：连续记同一类内容时才少一步
+        selectedBoard = rememberedBoard;
+        syncBoardUi();
         noteInput.value = "";
         imagesArea.innerHTML = "";
         btnPin.classList.remove("active");
@@ -374,6 +465,8 @@
         reminderIndicator.classList.remove("show");
         btnCancelReminder.style.display = "none";
         hidePopups();
+        // 清空正文/图片后不会再触发 scroll，等下一帧布局稳定再重算，否则上次的滚动条会留着
+        requestAnimationFrame(updateThumb);
         noteInput.focus();
       }
 
@@ -382,7 +475,24 @@
         colorPicker.classList.remove("show");
         reminderMenu.classList.remove("show");
         templateMenu.classList.remove("show");
+        boardMenu.classList.remove("show");
         customTimeRow.style.display = "none";
+      }
+
+      /** 集合按钮与名称角标的显示状态。按钮常驻：藏起来会让人以为功能没了，没有集合时菜单里给出去处 */
+      function syncBoardUi() {
+        var name = boardNameOf(selectedBoard);
+        btnBoard.classList.toggle("active", !!name);
+        btnBoard.title = name ? "存入集合「" + name + "」" : "存入集合";
+        boardIndicator.textContent = name;
+        boardIndicator.classList.toggle("show", !!name);
+      }
+
+      function boardNameOf(id) {
+        for (var i = 0; i < boardList.length; i++) {
+          if (boardList[i].id === id) return boardList[i].name;
+        }
+        return "";
       }
 
       // ── 标题栏拖拽 ──
@@ -407,6 +517,60 @@
       });
       btnPin.addEventListener("animationend", function () {
         btnPin.classList.remove("pin-anim");
+      });
+
+      // ── 集合 ──
+      btnBoard.addEventListener("click", function (e) {
+        e.stopPropagation();
+        // hidePopups 之前先记下开合意图：再点一次同一颗按钮应该是收起来，与颜色/提醒按钮一致
+        var willOpen = !boardMenu.classList.contains("show");
+        hidePopups();
+        if (!willOpen) return;
+        renderBoardMenu();
+        // 先 show 再量：菜单宽度由最长的集合名撑开，display:none 时 offsetWidth 是 0。
+        // 量完立刻定位，仍在同一个 JS 任务里，浏览器不会先把没夹紧的位置画出来
+        boardMenu.classList.add("show");
+        var rect = btnBoard.getBoundingClientRect();
+        var mw = boardMenu.offsetWidth;
+        var mh = boardMenu.offsetHeight;
+        var left = rect.left;
+        var top = rect.bottom + 4;
+        // 这颗按钮在标题栏最左，照颜色/提醒那样「右边缘对齐按钮」会让菜单往左长出窗口外
+        if (left + mw > window.innerWidth - 4) left = window.innerWidth - 4 - mw;
+        if (left < 4) left = 4;
+        // 窗口最矮 200px，集合一多下面的空间不够就朝上弹，再不行靠 max-height 滚动兜底
+        if (top + mh > window.innerHeight - 4) top = rect.top - 4 - mh;
+        if (top < 4) top = 4;
+        boardMenu.style.left = left + "px";
+        boardMenu.style.top = top + "px";
+        boardMenu.style.right = "auto";
+        boardMenu.style.bottom = "auto";
+      });
+
+      function renderBoardMenu() {
+        boardMenu.innerHTML = "";
+        // 「普通便签」排第一：选了集合也得有回去的路，不该为了改回去再开主窗口
+        [{ id: "", name: "普通便签" }].concat(boardList).forEach(function (b) {
+          var btn = document.createElement("button");
+          btn.dataset.board = b.id;
+          btn.textContent = (b.id === selectedBoard ? "✓ " : "") + b.name;
+          boardMenu.appendChild(btn);
+        });
+        if (boardList.length === 0) {
+          // 一个集合都没有时只有一行「普通便签」，不说明一下会以为按钮坏了
+          var tip = document.createElement("div");
+          tip.className = "menu-hint";
+          tip.textContent = "主窗口侧栏的 + 号可新建集合";
+          boardMenu.appendChild(tip);
+        }
+      }
+
+      boardMenu.addEventListener("click", function (e) {
+        var btn = e.target.closest("button");
+        if (!btn) return;
+        selectedBoard = btn.dataset.board || "";
+        syncBoardUi();
+        boardMenu.classList.remove("show");
       });
 
       // ── 颜色 ──
@@ -493,43 +657,75 @@
         if (!e.target.closest(".color-picker") && !e.target.closest("#btn-color")) {
           colorPicker.classList.remove("show");
         }
-        if (!e.target.closest(".popup-menu") && !e.target.closest("#btn-reminder") && !e.target.closest("#btn-template")) {
+        if (!e.target.closest(".popup-menu") && !e.target.closest("#btn-reminder") && !e.target.closest("#btn-template") && !e.target.closest("#btn-board")) {
           reminderMenu.classList.remove("show");
           templateMenu.classList.remove("show");
+          boardMenu.classList.remove("show");
           customTimeRow.style.display = "none";
         }
       });
 
       // ── 模板 ──
-      function pad(n) { return n.toString().padStart(2, "0"); }
-      function todayStr() { return new Date().toLocaleDateString('zh-CN'); }
-      var templates = {
-        todo: '## 待办\n- [ ] ',
-        order: function() { return '## 订单记录\n**日期：** ' + todayStr() + '\n**订单号：**\n**平台：** 抖音\n**商品：**\n**金额：**\n**买家ID：**\n\n### 订单状态\n- [ ] 已发货\n- [ ] 已签收\n- [ ] 已完成\n\n### 备注\n'; },
-        aftersale: function() { return '## 售后记录\n**日期：** ' + todayStr() + '\n**订单号：**\n**商品：**\n**售后类型：** 退款/退货/换货/补偿\n\n### 问题描述\n\n### 处理方案\n\n### 处理结果\n- [ ] 已处理\n- [ ] 待跟进\n'; },
-        diary: function() { return '## ' + todayStr() + '\n\n### 今天做了\n\n### 感悟\n'; },
-        reading: '## 《书名》\n\n### 核心观点\n\n### 金句\n\n### 感想\n',
-        project: '## 项目计划\n\n### 目标\n\n### 步骤\n1. \n2. \n3. \n\n### 截止日期\n',
-      };
+      /** 只在 settings.templates 为 null（从没改过）时兜底，必须与 src/utils.ts 的 DEFAULT_TEMPLATES 逐字一致 */
+      var FALLBACK_TEMPLATES = [
+        { name: "待办清单", content: "## 待办\n- [ ] " },
+        { name: "订单记录", content: "## 订单记录\n**日期：** {date}\n**订单号：**\n**平台：** 抖音\n**商品：**\n**金额：**\n**买家ID：**\n\n### 订单状态\n- [ ] 已发货\n- [ ] 已签收\n- [ ] 已完成\n\n### 备注\n" },
+        { name: "售后记录", content: "## 售后记录\n**日期：** {date}\n**订单号：**\n**商品：**\n**售后类型：** 退款/退货/换货/补偿\n\n### 问题描述\n\n### 处理方案\n\n### 处理结果\n- [ ] 已处理\n- [ ] 待跟进\n" },
+        { name: "日记", content: "## {date}\n\n### 今天做了\n\n### 感悟\n" },
+        { name: "读书笔记", content: "## 《书名》\n\n### 核心观点\n\n### 金句\n\n### 感想\n" },
+        { name: "项目计划", content: "## 项目计划\n\n### 目标\n\n### 步骤\n1. \n2. \n3. \n\n### 截止日期\n" },
+      ];
+      /** 主进程推过来的列表；null 表示用户从没改过模板，走上面那份兜底 */
+      var templateList = null;
+
+      function currentTemplates() { return templateList || FALLBACK_TEMPLATES; }
+
+      /** 与主窗口 utils.ts 的 fillTemplateVars 一致：{date} 今天、{time} 当前时分。同一个模板在两个窗口插出来得是同一份文本 */
+      function fillVars(content) {
+        var d = new Date();
+        return String(content)
+          .split("{date}").join(d.toLocaleDateString("zh-CN"))
+          .split("{time}").join(pad(d.getHours()) + ":" + pad(d.getMinutes()));
+      }
+
+      function renderTemplateMenu() {
+        templateMenu.innerHTML = "";
+        var list = currentTemplates();
+        if (list.length === 0) {
+          // 用户把模板删光了：给句说明，别弹一个空框看着像坏了
+          var empty = document.createElement("div");
+          empty.className = "menu-hint";
+          empty.textContent = "还没有模板，可在「设置 › 正文模板」里添加";
+          templateMenu.appendChild(empty);
+          return;
+        }
+        // 名称是用户自己写的、可能重复，只能按第几条来取
+        list.forEach(function (t, i) {
+          var btn = document.createElement("button");
+          btn.dataset.tplIndex = String(i);
+          btn.textContent = t.name;
+          templateMenu.appendChild(btn);
+        });
+      }
 
       btnTemplate.addEventListener("click", function (e) {
         e.stopPropagation();
         hidePopups();
+        renderTemplateMenu();
         var rect = btnTemplate.getBoundingClientRect();
         templateMenu.style.bottom = (window.innerHeight - rect.top + 4) + "px";
         templateMenu.style.left = rect.left + "px";
         templateMenu.style.top = "auto";
-        templateMenu.style.right = "auto";
         templateMenu.classList.toggle("show");
       });
 
       templateMenu.addEventListener("click", function (e) {
         var btn = e.target.closest("button");
-        if (!btn || !btn.dataset.tpl) return;
-        var key = btn.dataset.tpl;
-        var content = templates[key];
-        var text = typeof content === 'function' ? content() : content;
-        noteInput.value = text;
+        if (!btn || btn.dataset.tplIndex === undefined) return;
+        var t = currentTemplates()[parseInt(btn.dataset.tplIndex, 10)];
+        if (!t) return;
+        // 和主窗口一样是覆盖当前内容，不是追加
+        noteInput.value = fillVars(t.content);
         templateMenu.classList.remove("show");
         noteInput.focus();
       });
@@ -613,6 +809,8 @@
           div.appendChild(btn);
           imagesArea.appendChild(div);
         });
+        // 缩略图增删只改高度、不会触发 scroll，这里补一次重算
+        requestAnimationFrame(updateThumb);
       }
 
       // ── 关闭（保存） ──
@@ -647,6 +845,7 @@
           isDone: isDone,
           remindAt: remindAt,
           images: imageFilenames,
+          board: selectedBoard,
         }).catch(function (err) {
           console.error("save_quick_note failed:", err);
           saving = false; // 失败允许重试
@@ -681,16 +880,28 @@
           // 监听打开事件 → 重置 + 从事件 payload 同步主题
           if (t.event && t.event.listen) {
             t.event.listen("quick-note-opened", function (event) {
-              resetState();
-              if (event && event.payload) {
-                applyTheme(event.payload);
+              // 集合列表要先落位再 resetState：resetState 按「上次的落点」还原选中态
+              var p = event && event.payload;
+              if (p) {
+                boardList = p.boards || [];
+                rememberedBoard = p.board || "";
+                templateList = Array.isArray(p.templates) ? p.templates : null;
+                applyTheme(p);
               }
+              resetState();
             });
             // 主窗口改主题/皮肤时实时更新：只换类名，不能 resetState（会清掉正在写的内容）
             t.event.listen("theme-changed", function (event) {
               if (event && event.payload) {
                 applyTheme(event.payload);
               }
+            });
+            // 改模板同理：列表换掉即可。菜单正好开着就当场重画，下次打开自然也是新的
+            t.event.listen("templates-changed", function (event) {
+              var p = event && event.payload;
+              if (!p || !Array.isArray(p.templates)) return;
+              templateList = p.templates;
+              if (templateMenu.classList.contains("show")) renderTemplateMenu();
             });
           }
           return;

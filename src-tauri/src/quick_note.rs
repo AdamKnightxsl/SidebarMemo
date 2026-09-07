@@ -65,13 +65,36 @@ pub(crate) fn open_quick_note(app: AppHandle) -> Result<(), String> {
     win.show().map_err(|e| format!("show failed: {}", e))?;
     win.set_focus().map_err(|e| format!("set_focus failed: {}", e))?;
 
-    // 通知前端清空/初始化，携带当前主题信息
-    let (theme, skin) = {
+    // 通知前端清空/初始化，携带当前主题与集合列表。
+    // 集合只能在主窗口建/改名/删，那些操作都不发事件，所以每次打开的这一推是唯一可靠的刷新点；
+    // 记住的上次选择指向已删集合时就地抹掉，前端不必再校验一遍。
+    // 注意：窗口此刻已经 show 出来了，这里任何一步失败都不能提前 return——不发事件前端就不会
+    // resetState，用户会看到一个还留着上次草稿、集合列表也拿不到的窗口
+    let (theme, skin, boards, note_board, templates) = {
         let state = app.state::<crate::AppState>();
-        let s = state.settings.lock().map_err(|e| e.to_string())?;
-        (s.theme.clone(), s.skin.clone())
+        let settings = state.settings.lock().ok();
+        let theme = settings.as_ref().map(|s| s.theme.clone()).unwrap_or_else(|| "dark".into());
+        let skin = settings.as_ref().map(|s| s.skin.clone()).unwrap_or_default();
+        let saved = settings.as_ref().map(|s| s.note_board.clone()).unwrap_or_default();
+        // null 表示用户从没改过模板，前端和主窗口一样退回内置那一套
+        let templates = settings.as_ref().and_then(|s| s.templates.clone());
+        drop(settings);
+        let boards = state
+            .store
+            .lock()
+            .ok()
+            .and_then(|store| store.get_boards().ok())
+            .unwrap_or_default();
+        let note_board = if boards.iter().any(|b| b.id == saved) { saved } else { String::new() };
+        (theme, skin, boards, note_board, templates)
     };
-    let _ = win.emit("quick-note-opened", serde_json::json!({ "theme": theme, "skin": skin }));
+    let _ = win.emit("quick-note-opened", serde_json::json!({
+        "theme": theme,
+        "skin": skin,
+        "boards": boards,
+        "board": note_board,
+        "templates": templates,
+    }));
     Ok(())
 }
 
@@ -104,6 +127,7 @@ pub(crate) fn save_quick_note(
     is_done: bool,
     remind_at: String,
     images: Vec<String>,
+    board: String,
 ) -> Result<String, String> {
     let trimmed = content.trim().to_string();
     // 空内容且无图片 → 不创建
@@ -124,10 +148,28 @@ pub(crate) fn save_quick_note(
 
     let memo_content = if trimmed.is_empty() { "（图片）".to_string() } else { trimmed };
 
+    // 集合归属：便签窗口拿到的是打开那一刻的列表快照，主窗口这期间可能已经把集合删了。
+    // 内容不能因为集合没了就存不下去，所以退回普通便签，再由下面的事件告诉主窗口一声
+    let (applied_board, board_fell_back) = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        if board.is_empty() {
+            (String::new(), false)
+        } else {
+            match store.board_exists(&board) {
+                Ok(true) => (board.clone(), false),
+                Ok(false) => (String::new(), true),
+                Err(e) => {
+                    eprintln!("[QuickNote] 校验集合失败: {}", e);
+                    (String::new(), false)
+                }
+            }
+        }
+    };
+
     // 插入备忘录
     let memo = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        store.insert(&memo_content).map_err(|e| e.to_string())?
+        store.insert(&memo_content, &applied_board).map_err(|e| e.to_string())?
     };
 
     // 设置颜色
@@ -154,7 +196,7 @@ pub(crate) fn save_quick_note(
     // 设置提醒
     if !remind_at.is_empty() {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        if let Err(e) = store.set_reminder(&memo.id, &remind_at) {
+        if let Err(e) = store.set_reminder(&memo.id, &remind_at, "") {
             eprintln!("[QuickNote] set_reminder 失败: {}", e);
         }
     }
@@ -193,6 +235,8 @@ pub(crate) fn save_quick_note(
             if let Ok(mut s) = state.settings.lock() {
                 s.note_width = Some(size.width);
                 s.note_height = Some(size.height);
+                // 记的是真正生效的那个集合：万一退回了普通便签，下次打开就不会又指向已删除的 id
+                s.note_board = applied_board.clone();
                 let _ = save_settings(&s);
             }
         }
@@ -201,7 +245,10 @@ pub(crate) fn save_quick_note(
 
     // 通知主窗口刷新
     if let Some(main) = app.get_webview_window("main") {
-        let _ = main.emit("quick-note-saved", &memo.id);
+        let _ = main.emit("quick-note-saved", serde_json::json!({
+            "id": memo.id,
+            "boardFellBack": board_fell_back,
+        }));
     }
 
     Ok(memo.id)
@@ -263,13 +310,16 @@ pub(crate) fn move_quick_note_images(
 /// 设置快捷便签快捷键
 #[tauri::command]
 pub(crate) fn set_note_shortcut(state: tauri::State<crate::AppState>, s: String, app: AppHandle) -> Result<(), String> {
-    let new_sc = parse_shortcut(&s)?;
+    let s = s.trim().to_string();
+    // 空串＝「未设置」：不注册，只把旧键注销掉
+    let new_sc = if s.is_empty() { None } else { Some(parse_shortcut(&s)?) };
     let mut st = state.settings.lock().map_err(|e| e.to_string())?;
-    let old = st.note_shortcut.clone();
-    let old_sc = parse_shortcut(&old).ok();
+    let old_sc = parse_shortcut(&st.note_shortcut).ok();
     // 先注册新键，成功后才写盘并注销旧键，避免注册失败（被占用/非法）导致旧键丢失
-    if old_sc != Some(new_sc) {
-        register_note_shortcut_internal(&app, &s)?;
+    if new_sc != old_sc {
+        if new_sc.is_some() {
+            register_note_shortcut_internal(&app, &s)?;
+        }
         if let Some(old_key) = old_sc {
             let _ = app.global_shortcut().unregister(old_key);
         }

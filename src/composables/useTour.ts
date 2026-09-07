@@ -1,5 +1,6 @@
 import { computed, nextTick, ref, watch, type CSSProperties } from "vue";
 import { tourSuspended } from "./useWindowSnap";
+import { settings } from "./useSettings";
 
 export type TourPhase = "idle" | "welcome" | "steps" | "final";
 export type TipSide = "top" | "bottom" | "left" | "right";
@@ -42,9 +43,9 @@ const STEPS: TourStep[] = [
     allow: ".quick-input-wrap, .template-btn",
   },
   {
-    anchor: '[data-nav="today"],[data-nav="yesterday"],[data-nav="dby"]',
+    anchor: '[data-nav="today"],[data-nav="yesterday"]',
     title: "按日期分区，只看在意的",
-    body: ["今 / 昨 / 前 只看那一天", "最上方图标＝全部备忘", "垃圾桶保留 30 天可恢复"],
+    body: ["今 / 昨 只看那一天", "最上方图标＝全部备忘", "纸箱＝归档 · 桶＝已删除", "昨下 + 号＝自定义集合", "未置顶便签 {autoTrash}"],
     hint: "→ 点一个试试，就停在你要看的视图",
     done: "✓ 视图已经切过去了，点「下一步」继续",
     mode: "interactive",
@@ -62,29 +63,29 @@ const STEPS: TourStep[] = [
   {
     anchor: "[data-tour='search-box']",
     hitAnchor: ".color-filter-btn",
-    title: "搜索与颜色筛选",
-    body: ["关键词全文匹配", "命中的字会高亮", "右侧按钮按颜色筛选"],
+    title: "搜索与筛选",
+    body: ["关键词全文匹配", "命中的字会高亮", "漏斗按钮：弹层里切「颜色 / 标签」"],
     hint: "→ 点进输入框直接开始搜",
-    done: "✓ 搜索和颜色筛选都在这一排，可以随便试",
+    done: "✓ 搜索和筛选都在这一排，可以随便试",
     mode: "interactive",
-    allow: ".search-box, .search-box input, .color-filter-btn, .color-filter-popup",
+    allow: ".search-box, .search-box input, .color-filter-btn, .color-filter-popup, .filter-popup",
   },
   {
     anchor: "[data-tour='memo-list']",
     anchorWithData: "[data-tour='memo-list'] .memo-card",
     onlyFirst: true,
     title: "卡片上的操作",
-    body: ["拖左侧 ⋮ 调整顺序", "双击卡片进入编辑", "悬停出现 置顶·颜色·完成·提醒·删除"],
+    body: ["拖 ⋮ 排序 · 拖到侧栏集合按钮＝移入", "双击卡片进入编辑", "悬停出现 置顶·颜色·完成·提醒·删除", "正文写 #词 即成标签，点它能筛选", "行首 - [ ] 成待办，点框即勾选", "右键卡片＝复制 / 归档 / 加入集合 / 添加标签"],
     alt: {
       title: "你的记录都会出现在这里",
-      body: ["写下第一条后就会变成卡片", "拖左侧 ⋮ 调整顺序", "双击卡片进入编辑", "悬停出现 置顶·颜色·完成·提醒·删除"],
+      body: ["写下第一条后就会变成卡片", "拖 ⋮ 排序 · 拖到侧栏集合按钮＝移入", "双击卡片进入编辑", "悬停出现 置顶·颜色·完成·提醒·删除", "正文写 #词 即成标签，点它能筛选", "行首 - [ ] 成待办，点框即勾选", "右键卡片＝复制 / 归档 / 加入集合 / 添加标签"],
     },
     mode: "passive",
   },
   {
     anchor: '[data-nav="settings"]',
     title: "个性化都在设置里",
-    body: ["6 套皮肤", "亮 / 暗模式", "自定义全局快捷键"],
+    body: ["6 套皮肤", "亮 / 暗模式", "快捷键 · 开机自启 · 自动清理", "正文模板可自己改"],
     hint: "→ 点这里进设置页，引导就结束了",
     mode: "interactive",
     allow: ".nav-btn",
@@ -104,6 +105,13 @@ interface Box {
 }
 
 const px = (v: number) => `${Math.max(0, Math.round(v))}px`;
+
+/** 文案里的 {autoTrash} 按当前设置取值。STEPS 是常量，展示时才替换，用户改过天数后引导不会说错 */
+function fillTourVars(t: TourText): TourText {
+  const days = settings.value.auto_trash_days ?? 3;
+  const daysText = days > 0 ? `${days} 天后自动进垃圾桶` : "不会自动进垃圾桶";
+  return { title: t.title, body: t.body.map((line) => line.split("{autoTrash}").join(daysText)), hint: t.hint };
+}
 
 // 模块级单例：与 useMemos / useSettings 一致，组件卸载不丢状态
 const phase = ref<TourPhase>("idle");
@@ -260,7 +268,7 @@ async function goStep(i: number) {
   currentBox = m.box;
   applyBox(m.box);
   observeAnchors(s);
-  text.value = (m.alt && s.alt) ? s.alt : s;
+  text.value = fillTourVars((m.alt && s.alt) ? s.alt : s);
   hintText.value = text.value.hint || "";
   sealed.value = s.mode !== "interactive";
   live.value = s.mode === "interactive";

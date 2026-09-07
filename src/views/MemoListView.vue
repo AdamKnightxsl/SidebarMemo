@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, watchEffect, provide } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, watchEffect, provide, inject } from "vue";
 import SearchBar from "../components/SearchBar.vue";
-import ColorFilter from "../components/ColorFilter.vue";
+import FilterMenu from "../components/FilterMenu.vue";
 import MemoCard from "../components/MemoCard.vue";
 import QuickInput from "../components/QuickInput.vue";
-import { useMemos } from "../composables/useMemos";
+import { useMemos, type ShowToastFn } from "../composables/useMemos";
 import { useSettings } from "../composables/useSettings";
 import { marked } from "marked";
 import { matchesQuery, highlightInHtml } from "../composables/pinyinSearch";
 import { sanitizeHtml } from "../composables/sanitizeHtml";
-import { isComposing } from "../utils";
+import { isComposing, contentPreview } from "../utils";
 import { selectedIndex } from "../composables/useKeyboard";
 
-const { pinnedMemos, unpinnedMemos, addMemo, searchQuery, colorFilter, dateFilter, trashedMemos, loadTrashedMemos, restoreFromTrash, permanentDeleteMemo, clearTrash } = useMemos();
+const { memos, pinnedMemos, unpinnedMemos, addMemo, searchQuery, colorFilter, tagFilter, dateFilter, boardFilter, boards, trashedMemos, archivedMemos, loadTrashedMemos, loadArchivedMemos, setArchived, restoreFromTrash, permanentDeleteMemo, clearTrash } = useMemos();
 const { settings } = useSettings();
+
+// 永久删除会连图片目录一起抹掉，撤销不了，所以只能给二次确认而不是撤销
+const showToast = inject<ShowToastFn>("showToast", (msg: string) => console.warn(msg));
 
 // 向 MemoCard 提供 searchQuery，用于搜索高亮
 provide('searchQuery', searchQuery);
@@ -82,22 +85,83 @@ function setupScrollbar(list: HTMLElement, track: HTMLElement, thumb: HTMLElemen
   requestAnimationFrame(updateThumb);
 }
 
+const archiveSearch = ref("");
+const archiveListRef = ref<HTMLElement | null>(null);
+const archiveTrackRef = ref<HTMLElement | null>(null);
+const archiveThumbRef = ref<HTMLElement | null>(null);
+
+const filteredArchived = computed(() => {
+  const q = archiveSearch.value.trim();
+  if (!q) return archivedMemos.value;
+  return archivedMemos.value.filter((m) => matchesQuery(m.content, q));
+});
+
+function renderArchivedContent(content: string): string {
+  const html = marked.parse(content || "") as string;
+  const q = archiveSearch.value.trim();
+  const finalHtml = q ? highlightInHtml(html, q) : html;
+  // 与其它视图一样：v-html 注入前必须净化
+  return sanitizeHtml(finalHtml);
+}
+
 const trashedDeletingId = ref<string | null>(null);
 function handlePermanentDelete(id: string) {
-  trashedDeletingId.value = id;
-  setTimeout(() => {
-    trashedDeletingId.value = null;
-    permanentDeleteMemo(id);
-  }, 250);
+  const memo = trashedMemos.value.find((m) => m.id === id);
+  if (!memo) return;
+  showToast(
+    `永久删除无法恢复（含图片）：${contentPreview(memo.content)}`,
+    6000,
+    undefined,
+    {
+      label: "确认删除",
+      onClick: () => {
+        trashedDeletingId.value = id;
+        setTimeout(() => {
+          trashedDeletingId.value = null;
+          permanentDeleteMemo(id);
+        }, 250);
+      },
+    },
+  );
+}
+
+function handleClearTrash() {
+  const count = trashedMemos.value.length;
+  if (count === 0) {
+    void clearTrash();
+    return;
+  }
+  showToast(
+    `垃圾桶的 ${count} 条便签（含图片）将被彻底删除`,
+    6000,
+    undefined,
+    { label: "确认清空", onClick: () => void clearTrash() },
+  );
+}
+
+async function handleUnarchive(id: string) {
+  if (await setArchived(id, false)) showToast("已取消归档，回到主列表", 3000);
 }
 
 const allMemos = computed(() => [...pinnedMemos.value, ...unpinnedMemos.value]);
 const maxIndex = computed(() => allMemos.value.length - 1);
-const isFiltering = computed(() => !!searchQuery.value.trim() || colorFilter.value.length > 0);
+const isFiltering = computed(() => !!searchQuery.value.trim() || colorFilter.value.length > 0 || tagFilter.value.length > 0);
+
+/** 集合视图与普通「全部」视图共用同一套列表 UI，只差默认文案与新建落点 */
+const currentBoardName = computed(() =>
+  boardFilter.value ? boards.value.find((b) => b.id === boardFilter.value)?.name ?? "" : ""
+);
+const currentBoardColor = computed(() =>
+  boardFilter.value ? boards.value.find((b) => b.id === boardFilter.value)?.color ?? "" : ""
+);
+/** 集合里的总条数。故意不走 allMemos：搜索/颜色/标签的命中数搜索栏已经报了，标题再报一遍只会随筛选跳动 */
+const currentBoardCount = computed(() =>
+  boardFilter.value ? memos.value.filter((m) => m.board === boardFilter.value).length : 0
+);
 
 async function handleAdd(content: string) {
   if (!content.trim()) return;
-  await addMemo(content.trim());
+  await addMemo(content.trim(), boardFilter.value);
   selectedIndex.value = -1;
 }
 
@@ -128,8 +192,9 @@ function editSelected() {
 function handleKeydown(e: KeyboardEvent) {
   // 输入法组词中的按键不参与列表快捷键导航
   if (isComposing(e)) return;
-  const tag = (e.target as HTMLElement).tagName;
-  const isEditing = tag === "TEXTAREA" || tag === "INPUT";
+  const el = e.target as HTMLElement;
+  // 所见即所得编辑区是 contenteditable 的 DIV，只看 tagName 会漏掉它
+  const isEditing = el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.isContentEditable;
 
   if ((e.ctrlKey || e.metaKey) && (e.key === "n" || e.key === "N")) {
     e.preventDefault();
@@ -163,11 +228,11 @@ let checkVisibilityRef: (() => void) | null = null;
 let scrollAnimationTimer: ReturnType<typeof setTimeout> | null = null;
 
 watchEffect(() => {
-  const list = normalListRef.value || trashListRef.value;
+  const list = normalListRef.value || trashListRef.value || archiveListRef.value;
   if (!list) return;
   setupScrollAnimation(list);
-  const track = normalTrackRef.value || trashTrackRef.value;
-  const thumb = normalThumbRef.value || trashThumbRef.value;
+  const track = normalTrackRef.value || trashTrackRef.value || archiveTrackRef.value;
+  const thumb = normalThumbRef.value || trashThumbRef.value || archiveThumbRef.value;
   if (track && thumb) setupScrollbar(list, track, thumb);
 });
 
@@ -241,6 +306,8 @@ defineExpose({ scrollToMemo });
 watch(dateFilter, (v) => {
   if (v === "trash") {
     loadTrashedMemos();
+  } else if (v === "archive") {
+    loadArchivedMemos();
   }
   selectedIndex.value = -1;
 }, { immediate: true });
@@ -253,6 +320,10 @@ watch([pinnedMemos, unpinnedMemos], () => {
 });
 
 watch(trashedMemos, () => {
+  nextTick(() => requestAnimationFrame(() => checkVisibilityRef?.()));
+});
+
+watch(archivedMemos, () => {
   nextTick(() => requestAnimationFrame(() => checkVisibilityRef?.()));
 });
 
@@ -309,7 +380,7 @@ watch(() => settings.value.skin, () => {
       </div>
     </div>
     <div v-if="trashedMemos.length > 0" style="padding: 8px 12px; display: flex; justify-content: flex-end;">
-      <button class="clear-trash-btn" @click="clearTrash" title="清空垃圾桶">
+      <button class="clear-trash-btn" @click="handleClearTrash" title="清空垃圾桶">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"/>
           <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -322,13 +393,61 @@ watch(() => settings.value.skin, () => {
     </div>
   </template>
 
+  <!-- 归档视图 -->
+  <template v-else-if="dateFilter === 'archive'">
+    <SearchBar v-model="archiveSearch" :count="filteredArchived.length" />
+    <div class="memo-list-wrapper">
+      <div class="memo-list-gradient-top"></div>
+      <div class="memo-list-gradient-bottom"></div>
+      <div class="memo-list scrollbar-hide" ref="archiveListRef">
+        <div class="shadow-spacer"></div>
+        <template v-if="filteredArchived.length > 0">
+          <div
+            v-for="memo in filteredArchived"
+            :key="memo.id"
+            class="memo-card"
+            :data-color="memo.color || undefined"
+          >
+            <div class="memo-header">
+              <span class="memo-time" title="归档时间">
+                <span class="memo-date">{{ memo.archived_at.slice(0, 10) }}</span>
+                <span class="memo-clock">{{ memo.archived_at.slice(11, 16) }}</span>
+              </span>
+              <div class="memo-actions" style="opacity: 1;">
+                <button
+                  class="memo-action-btn"
+                  @click.stop="handleUnarchive(memo.id)"
+                  title="取消归档，放回主列表"
+                >↩</button>
+              </div>
+            </div>
+            <div class="memo-content markdown-body" style="max-height: none; -webkit-line-clamp: unset; display: block; overflow: visible;" v-html="renderArchivedContent(memo.content)"></div>
+          </div>
+        </template>
+        <div v-if="archivedMemos.length === 0" class="empty-state">
+          <div class="empty-icon">📦</div>
+          <div class="empty-text">还没有归档的便签</div>
+          <div class="empty-hint">在卡片上右键选「归档」，便签会从主列表收起并出现在这里</div>
+        </div>
+      </div>
+      <div class="memo-scroll-track" ref="archiveTrackRef">
+        <div class="memo-scroll-thumb" ref="archiveThumbRef"></div>
+      </div>
+    </div>
+  </template>
+
   <!-- 正常视图 -->
   <template v-else>
     <SearchBar ref="searchRef" v-model="searchQuery" :count="allMemos.length">
       <template #actions>
-        <ColorFilter />
+        <FilterMenu />
       </template>
     </SearchBar>
+    <!-- 集合视图标题：导航按钮只显示前 4 个字，完整名称和条数在这里看 -->
+    <div v-if="currentBoardName" class="board-title" :data-board-color="currentBoardColor || undefined">
+      <span class="board-title-name">{{ currentBoardName }}</span>
+      <span class="board-title-count">{{ currentBoardCount }} 条</span>
+    </div>
     <div class="memo-list-wrapper">
       <div class="memo-list-gradient-top"></div>
       <div class="memo-list-gradient-bottom"></div>
@@ -357,7 +476,8 @@ watch(() => settings.value.skin, () => {
         </template>
         <div v-if="pinnedMemos.length === 0 && unpinnedMemos.length === 0" class="empty-state">
           <div class="empty-icon">📝</div>
-          <div class="empty-text">{{ isFiltering ? "没有符合条件的备忘" : "输入内容开始记录" }}</div>
+          <div class="empty-text">{{ isFiltering ? "没有符合条件的备忘" : (currentBoardName ? `「${currentBoardName}」还没有便签` : "输入内容开始记录") }}</div>
+          <div v-if="currentBoardName && !isFiltering" class="empty-hint">集合里的便签不参与自动清理，只有手动删除才会进入垃圾桶</div>
         </div>
       </div>
       <div class="memo-scroll-track" ref="normalTrackRef">

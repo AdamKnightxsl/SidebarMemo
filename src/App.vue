@@ -5,7 +5,7 @@ import MemoListView from "./views/MemoListView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import Toast from "./components/Toast.vue";
 import OnboardingTour from "./components/OnboardingTour.vue";
-import { useMemos, type Memo } from "./composables/useMemos";
+import { useMemos, type Memo, type ToastAction } from "./composables/useMemos";
 import { useSettings } from "./composables/useSettings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -21,8 +21,8 @@ const { checkForUpdates, installUpdate, updating, downloadProgress, updateVersio
 
 const showUpdateNotify = ref(false);
 
-function showToast(msg: string, duration = 0, onClick?: () => void) {
-  toastRef.value?.show(msg, duration, onClick);
+function showToast(msg: string, duration = 0, onClick?: () => void, action?: ToastAction) {
+  toastRef.value?.show(msg, duration, onClick, action);
 }
 provide("showToast", showToast);
 
@@ -45,8 +45,10 @@ function onVisibilityChange() {
   }
 }
 
-const currentView = ref<"memos" | "today" | "yesterday" | "day_before_yesterday" | "trash" | "settings">("memos");
-const { loadMemos, dateFilter } = useMemos();
+const currentView = ref<"memos" | "today" | "yesterday" | "archive" | "trash" | "settings" | "board">("memos");
+/** 当前打开的集合 id。与 currentView 分开存，导航栏才能把「集合」当成一类视图而不是每个集合一个视图 */
+const currentBoard = ref("");
+const { loadMemos, loadBoards, dateFilter, boardFilter } = useMemos();
 const { settings, loadSettings } = useSettings();
 
 provide("currentView", currentView);
@@ -56,19 +58,39 @@ const { phase: tourPhase, start: startTour } = useTour();
 
 // 引导聚光的是主视图里的锚点，从设置页重播时必须先切回备忘列表
 function openGuide() {
-  currentView.value = "memos";
+  navigateTo("memos");
   nextTick(startTour);
 }
 
 provide("showGuide", openGuide);
 
-watch(currentView, (v) => {
+/**
+ * 视图切换的唯一入口：dateFilter 与 boardFilter 必须成对写入，
+ * 分成两个 watcher 各写一半会互相覆盖（点集合按钮时被日期分支清掉）。
+ */
+watch([currentView, currentBoard], ([v, board]) => {
+  const inBoard = v === "board";
+  if (!inBoard) currentBoard.value = "";
+  boardFilter.value = inBoard ? board : "";
   if (v === "today") dateFilter.value = "today";
   else if (v === "yesterday") dateFilter.value = "yesterday";
-  else if (v === "day_before_yesterday") dateFilter.value = "day_before_yesterday";
+  else if (v === "archive") dateFilter.value = "archive";
   else if (v === "trash") dateFilter.value = "trash";
   else dateFilter.value = "all";
 });
+
+type NavView = "memos" | "today" | "yesterday" | "archive" | "trash" | "settings" | "board";
+
+function navigateTo(view: NavView, boardId = "") {
+  currentView.value = view;
+  currentBoard.value = boardId;
+}
+
+/** 卡片上的集合标签点击后打开对应集合 */
+function openBoard(boardId: string) {
+  navigateTo("board", boardId);
+}
+provide("openBoard", openBoard);
 
 const skinClasses = ["skin-default", "skin-dark", "skin-warm", "skin-fresh", "skin-pink", "skin-ocean"];
 const skinAccents: Record<string, { accent: string; accentHover: string }> = {
@@ -152,8 +174,7 @@ async function showReminder(memo: Memo) {
   const plainText = memo.content.replace(/[*#_~`>\[\]!()]/g, '').trim();
   const content = plainText.length > 40 ? plainText.slice(0, 40) + "..." : plainText;
   showToast("提醒：" + content, 0, () => {
-    currentView.value = "memos";
-    dateFilter.value = "all";
+    navigateTo("memos");
     nextTick(() => memoListRef.value?.scrollToMemo(memo.id));
   });
   shakeWindow();
@@ -162,7 +183,7 @@ async function showReminder(memo: Memo) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadMemos(), loadSettings(), loadNotifySound()]);
+  await Promise.all([loadMemos(), loadBoards(), loadSettings(), loadNotifySound()]);
   // 诊断：记录前端 load 之后实际生效的主题与 <html> 上的 class，便于定位“后端 light 但界面 dark”
   invoke("fe_log", { msg: `mounted theme=${settings.value.theme} htmlClass="${document.documentElement.className}"` }).catch(() => {});
   if (!localStorage.getItem("sidebarMemo_guideShown")) {
@@ -181,9 +202,11 @@ onMounted(async () => {
     await showReminder(payload);
   });
   // 监听快捷便签保存事件 → 刷新列表
-  unlistenQuickNote = await getCurrentWindow().listen<string>("quick-note-saved", async () => {
+  unlistenQuickNote = await getCurrentWindow().listen<{ id: string; boardFellBack: boolean }>("quick-note-saved", async ({ payload }) => {
     if (appUnmounted) return;
     await loadMemos();
+    // 便签窗口记住的集合在这次编辑期间被删了：内容已退回普通便签，得说清楚，否则用户以为在集合里
+    if (payload?.boardFellBack) showToast("该集合已被删除，这条快捷便签存成了普通便签", 6000);
   });
   try {
     const s = await invoke<{ always_on_top: boolean }>("get_settings");
@@ -307,7 +330,7 @@ function onBottomResizeMouseUp() {
 </script>
 <template>
   <div class="app-container" ref="appContainer">
-    <SideNav :current="currentView" @change="currentView = $event" />
+    <SideNav :current="currentView" :current-board="currentBoard" @change="navigateTo" />
     <div class="main-area">
       <div id="title-bar" class="title-bar">
         <span>Sidebar Memo</span>

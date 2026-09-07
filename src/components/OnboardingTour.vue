@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { inject, onBeforeUnmount, onMounted, type Ref } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, type Ref } from "vue";
 import { useTour } from "../composables/useTour";
+import { useSettings } from "../composables/useSettings";
 
 const {
   phase, lit, live, sealed, text, hintText,
@@ -10,6 +11,15 @@ const {
 } = useTour();
 
 const currentView = inject<Ref<string> | undefined>("currentView", undefined);
+
+const { settings } = useSettings();
+// 快捷键由用户在设置里录制，引导里不能写死
+const mainShortcut = computed(() => (settings.value.shortcut || "Alt+M").replace(/\+/g, " + "));
+// 自动清理天数现在是设置项，引导文案得跟着走，不能替用户咬定一个固定数字
+const autoTrashLine = computed(() => {
+  const days = settings.value.auto_trash_days ?? 3;
+  return days > 0 ? `未置顶的便签 ${days} 天没动会自动进垃圾桶` : "自动清理已关闭，便签不会自己进垃圾桶";
+});
 
 function onClickCapture(e: MouseEvent) {
   handleDocumentClick(e);
@@ -85,7 +95,7 @@ onBeforeUnmount(() => {
           <h3>欢迎使用 Sidebar Memo</h3>
           <p class="sub">常驻屏幕侧边、随时呼出的轻量备忘录。</p>
           <div class="row"><div class="ico">记</div><div class="tx"><b>底部输入框</b><span>写完回车就存进列表</span></div></div>
-          <div class="row"><div class="ico">键</div><div class="tx"><b>Alt + Q</b><span>任意界面呼出窗口</span></div></div>
+          <div class="row"><div class="ico">键</div><div class="tx"><b>{{ mainShortcut }}</b><span>任意界面呼出窗口</span></div></div>
           <div class="row"><div class="ico">边</div><div class="tx"><b>贴边隐藏</b><span>拖到屏幕边缘自动吸附</span></div></div>
           <details>
             <summary>查看全部功能</summary>
@@ -93,7 +103,9 @@ onBeforeUnmount(() => {
               <li>Markdown：加粗 / 斜体 / 代码 / 列表</li>
               <li>编辑时可粘贴图片，点击放大查看</li>
               <li>拖拽左侧 ⋮ 调整顺序</li>
-              <li>删除的备忘在垃圾桶保留 30 天</li>
+              <li>卡片右键呼出菜单，删除后能在提示条撤销</li>
+              <li>{{ autoTrashLine }}</li>
+              <li>垃圾桶里的记录不会自动清空，可随时恢复</li>
             </ul>
           </details>
           <div class="card-btns">
@@ -109,7 +121,7 @@ onBeforeUnmount(() => {
         <div class="card">
           <h3>就这些，去写第一条吧</h3>
           <p class="sub">随时可以在「设置 → 引导手册」重播。</p>
-          <div class="row"><div class="ico">键</div><div class="tx"><b>Alt + Q</b><span>全局快捷键呼出 / 隐藏窗口</span></div></div>
+          <div class="row"><div class="ico">键</div><div class="tx"><b>{{ mainShortcut }}</b><span>全局快捷键呼出 / 隐藏窗口</span></div></div>
           <div class="row"><div class="ico">盘</div><div class="tx"><b>托盘图标</b><span>右键可显示窗口或退出程序</span></div></div>
           <div class="row"><div class="ico">色</div><div class="tx"><b>皮肤与暗色</b><span>设置里有 6 套配色</span></div></div>
           <div class="card-btns">

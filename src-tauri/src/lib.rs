@@ -5,8 +5,10 @@ mod images;
 mod util;
 mod shortcut;
 mod quick_note;
+mod autostart;
+mod data;
 
-use db::{Memo, MemoStore};
+use db::{Board, Memo, MemoStore};
 use settings::Settings;
 use images::validate_path_component;
 use shortcut::{parse_shortcut, register_shortcut_internal};
@@ -40,17 +42,23 @@ pub struct AppState {
 
 // Commands
 #[tauri::command] fn get_memos(state: tauri::State<AppState>) -> Result<Vec<Memo>, String> {
+    // 自动清理天数由设置控制，0 = 关闭。先取值释放 settings 锁再拿 store 锁，不让两把锁交叉持有
+    let days = state.settings.lock().map(|s| s.auto_trash_days).unwrap_or(3);
     let store = state.store.lock().map_err(|e| e.to_string())?;
-    if let Err(e) = store.auto_trash() {
-        eprintln!("[auto_trash] 执行失败: {}", e);
+    if days > 0 {
+        if let Err(e) = store.auto_trash(days) {
+            eprintln!("[auto_trash] 执行失败: {}", e);
+        }
     }
     store.get_all().map_err(|e| e.to_string())
 }
 #[tauri::command] fn get_trashed_memos(state: tauri::State<AppState>) -> Result<Vec<Memo>, String> { state.store.lock().map_err(|e| e.to_string())?.get_trashed().map_err(|e| e.to_string()) }
 #[tauri::command] fn move_to_trash(state: tauri::State<AppState>, id: String) -> Result<(), String> { state.store.lock().map_err(|e| e.to_string())?.move_to_trash(&id).map_err(|e| e.to_string()) }
+/// 撤销「移入垃圾桶」，把删除前的 remind_at 一起写回（restore_from_trash 不会）
+#[tauri::command] fn undo_trash(state: tauri::State<AppState>, id: String, remind_at: String) -> Result<(), String> { validate_path_component(&id)?; state.store.lock().map_err(|e| e.to_string())?.undo_trash(&id, &remind_at).map_err(|e| e.to_string()) }
 #[tauri::command] fn restore_from_trash(state: tauri::State<AppState>, id: String) -> Result<(), String> { state.store.lock().map_err(|e| e.to_string())?.restore_from_trash(&id).map_err(|e| e.to_string()) }
 #[tauri::command] fn permanent_delete(state: tauri::State<AppState>, id: String) -> Result<(), String> { validate_path_component(&id)?; state.store.lock().map_err(|e| e.to_string())?.permanent_delete(&id).map_err(|e| e.to_string()) }
-#[tauri::command] fn add_memo(state: tauri::State<AppState>, content: String) -> Result<Memo, String> { state.store.lock().map_err(|e| e.to_string())?.insert(&content).map_err(|e| e.to_string()) }
+#[tauri::command] fn add_memo(state: tauri::State<AppState>, content: String, board: Option<String>) -> Result<Memo, String> { state.store.lock().map_err(|e| e.to_string())?.insert(&content, board.as_deref().unwrap_or("")).map_err(|e| e.to_string()) }
 #[tauri::command] fn update_memo(state: tauri::State<AppState>, id: String, content: String) -> Result<(), String> { state.store.lock().map_err(|e| e.to_string())?.update_content(&id, &content).map_err(|e| e.to_string()) }
 #[tauri::command] fn delete_memo(state: tauri::State<AppState>, id: String) -> Result<(), String> { validate_path_component(&id)?; state.store.lock().map_err(|e| e.to_string())?.delete(&id).map_err(|e| e.to_string()) }
 #[tauri::command] fn toggle_pin(state: tauri::State<AppState>, id: String) -> Result<(), String> { state.store.lock().map_err(|e| e.to_string())?.toggle_pin(&id).map_err(|e| e.to_string()) }
@@ -58,13 +66,57 @@ pub struct AppState {
 #[tauri::command] fn toggle_done(state: tauri::State<AppState>, id: String) -> Result<(), String> { state.store.lock().map_err(|e| e.to_string())?.toggle_done(&id).map_err(|e| e.to_string()) }
 #[tauri::command] fn reorder_memos(state: tauri::State<AppState>, ids: Vec<String>) -> Result<(), String> { state.store.lock().map_err(|e| e.to_string())?.reorder(&ids).map_err(|e| e.to_string()) }
 #[tauri::command]
-fn set_reminder(state: tauri::State<AppState>, id: String, remind_at: String) -> Result<(), String> {
-    state.store.lock().map_err(|e| e.to_string())?.set_reminder(&id, &remind_at).map_err(|e| e.to_string())
+fn set_reminder(state: tauri::State<AppState>, id: String, remind_at: String, remind_repeat: Option<String>) -> Result<(), String> {
+    state.store.lock().map_err(|e| e.to_string())?
+        .set_reminder(&id, &remind_at, &remind_repeat.unwrap_or_default())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn clear_reminder(state: tauri::State<AppState>, id: String) -> Result<(), String> {
     state.store.lock().map_err(|e| e.to_string())?.clear_reminder(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_archived_memos(state: tauri::State<AppState>) -> Result<Vec<Memo>, String> {
+    state.store.lock().map_err(|e| e.to_string())?.get_archived().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_archived(state: tauri::State<AppState>, id: String, archived: bool) -> Result<(), String> {
+    validate_path_component(&id)?;
+    state.store.lock().map_err(|e| e.to_string())?.set_archived(&id, archived).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_boards(state: tauri::State<AppState>) -> Result<Vec<Board>, String> {
+    state.store.lock().map_err(|e| e.to_string())?.get_boards().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_board(state: tauri::State<AppState>, name: String, color: String) -> Result<Board, String> {
+    state.store.lock().map_err(|e| e.to_string())?.create_board(&name, &color).map_err(|e| e.to_string())
+}
+
+/// 集合改名与改色：命名弹框一次提交两项
+#[tauri::command]
+fn update_board(state: tauri::State<AppState>, id: String, name: String, color: String) -> Result<(), String> {
+    validate_path_component(&id)?;
+    state.store.lock().map_err(|e| e.to_string())?.update_board(&id, &name, &color).map_err(|e| e.to_string())
+}
+
+/// 删除集合，返回值是随之进入垃圾桶的便签条数（0 也要返回，前端据此决定提示文案）
+#[tauri::command]
+fn delete_board(state: tauri::State<AppState>, id: String) -> Result<u32, String> {
+    validate_path_component(&id)?;
+    state.store.lock().map_err(|e| e.to_string())?.delete_board(&id).map_err(|e| e.to_string())
+}
+
+/// 把便签移进集合（board 传集合 id）或退回普通便签（传空串）
+#[tauri::command]
+fn set_memo_board(state: tauri::State<AppState>, id: String, board: String) -> Result<(), String> {
+    validate_path_component(&id)?;
+    state.store.lock().map_err(|e| e.to_string())?.set_board(&id, &board).map_err(|e| e.to_string())
 }
 
 
@@ -180,15 +232,38 @@ fn show_main_window(app: tauri::AppHandle, state: tauri::State<AppState>) {
     }
 }
 
+/// 设置页「检测」：走快捷键回调完全相同的一条路径。
+/// 延时回显放在 Rust 线程里做，窗口隐藏后前端计时器会被 Chromium 节流；
+/// 这样即使快捷键本身没注册上，用户也不会停在窗口已隐藏的状态。
+#[tauri::command]
+fn test_main_window_shortcut(app: tauri::AppHandle) {
+    toggle_window(&app);
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1600));
+        let state = handle.state::<AppState>();
+        let hidden = {
+            let visible = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
+            !*visible
+        };
+        if hidden {
+            toggle_window(&handle);
+        }
+    });
+}
+
 #[tauri::command]
 fn set_shortcut(state: tauri::State<AppState>, s: String, app: tauri::AppHandle) -> Result<(), String> {
-    let new_sc = parse_shortcut(&s)?;
+    let s = s.trim().to_string();
+    // 空串＝「未设置」：不注册，只把旧键注销掉
+    let new_sc = if s.is_empty() { None } else { Some(parse_shortcut(&s)?) };
     let mut st = state.settings.lock().map_err(|e| e.to_string())?;
-    let old_shortcut = st.shortcut.clone();
-    let old_sc = parse_shortcut(&old_shortcut).ok();
+    let old_sc = parse_shortcut(&st.shortcut).ok();
     // 先注册新键，成功后才写盘并注销旧键，避免注册失败（被占用/非法）导致旧键丢失
-    if old_sc != Some(new_sc) {
-        register_shortcut_internal(&app, &s)?;
+    if new_sc != old_sc {
+        if new_sc.is_some() {
+            register_shortcut_internal(&app, &s)?;
+        }
         if let Some(old) = old_sc {
             let _ = app.global_shortcut().unregister(old);
         }
@@ -225,7 +300,9 @@ fn handle_system_wakeup(app: tauri::AppHandle, state: tauri::State<AppState>) ->
     }
     drop(settings);
     let settings2 = state.settings.lock().map_err(|e| e.to_string())?;
-    register_shortcut_internal(&app, &settings2.shortcut).map_err(|e| e.to_string())?;
+    if !settings2.shortcut.trim().is_empty() {
+        register_shortcut_internal(&app, &settings2.shortcut).map_err(|e| e.to_string())?;
+    }
     if let Some(w) = app.get_webview_window("main") {
         let mut v = state.window_visible.lock().unwrap_or_else(|e| e.into_inner());
         *v = w.is_visible().unwrap_or(false);
@@ -607,24 +684,24 @@ fn start_reminder_worker(app: AppHandle) {
             Err(e) => { eprintln!("Reminder worker lock error: {}", e); Vec::new() }
         };
         // 发送原生系统通知（即使窗口隐藏也能看到）；失败的保留 remind_at 下轮重试，避免提醒丢失
-        let mut sent_ids: Vec<String> = Vec::new();
+        let mut sent: Vec<Memo> = Vec::new();
         for memo in &due {
             let body = strip_markdown_for_notify(&memo.content);
             let body = if body.is_empty() { "（空内容）".to_string() } else { body };
             if send_native_notification(&app, "备忘录提醒", &body) {
-                sent_ids.push(memo.id.clone());
+                sent.push(memo.clone());
             }
         }
-        if !sent_ids.is_empty() {
+        if !sent.is_empty() {
             if let Ok(store) = state.store.lock() {
-                if let Err(e) = store.clear_reminders(&sent_ids) {
-                    eprintln!("[reminder] 清除已发送提醒失败: {}", e);
+                if let Err(e) = store.ack_reminders(&sent) {
+                    eprintln!("[reminder] 更新已发送提醒失败: {}", e);
                 }
             }
         }
         // 同时发送事件到前端（用于 toast 和应用内提示），仅限通知成功的条目
         if let Some(w) = app.get_webview_window("main") {
-            for memo in due.iter().filter(|m| sent_ids.contains(&m.id)) {
+            for memo in &sent {
                 let _ = w.emit("memo-reminder-due", memo);
             }
         }
@@ -692,6 +769,15 @@ pub fn run() {
     let note_shortcut_str = settings.note_shortcut.clone();
     let saved_settings = settings.clone();
 
+    // 开机自启开着时，每次启动按当前 exe 路径重申一次启动项：
+    // NSIS 更新或换安装目录后，注册表里的旧路径会失效，而界面仍显示「已开启」
+    #[cfg(target_os = "windows")]
+    if settings.auto_start {
+        if let Err(e) = autostart::set_autostart(true) {
+            eprintln!("[autostart] 刷新启动项失败: {}", e);
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -709,6 +795,9 @@ pub fn run() {
                 viewer_payload: Mutex::new(None),
             });
 
+            // 每天首启做一次整库+图片快照，误删/库损坏时至少能回滚到前一天
+            data::spawn_startup_backup();
+
             // 配置 asset 协议作用域：允许前端通过 asset:// 协议访问图片目录
             if let Some(data_dir) = dirs::data_dir() {
                 let img_dir = data_dir.join("sidebar-memo").join("images");
@@ -716,10 +805,14 @@ pub fn run() {
                 let _ = app.handle().asset_protocol_scope().allow_directory(&img_dir, true);
             }
             setup_tray(app.handle())?;
-            if let Err(e) = shortcut::register_shortcut_internal(app.handle(), &shortcut_str) {
+            if shortcut_str.trim().is_empty() {
+                eprintln!("[Shortcut] 主快捷键未设置，跳过注册");
+            } else if let Err(e) = shortcut::register_shortcut_internal(app.handle(), &shortcut_str) {
                 eprintln!("[Shortcut] 主快捷键注册失败(可能被其他程序占用): {}", e);
             }
-            if let Err(e) = quick_note::register_note_shortcut_internal(app.handle(), &note_shortcut_str) {
+            if note_shortcut_str.trim().is_empty() {
+                eprintln!("[QuickNote] 快捷记录快捷键未设置，跳过注册");
+            } else if let Err(e) = quick_note::register_note_shortcut_internal(app.handle(), &note_shortcut_str) {
                 eprintln!("[QuickNote] 快捷键注册失败: {}", e);
             }
             start_reminder_worker(app.handle().clone());
@@ -807,7 +900,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![close_to_tray, resize_window, set_position_and_size, settings::toggle_always_on_top, frontend_ready, get_memos, get_trashed_memos, add_memo, update_memo, delete_memo, toggle_pin, set_color, toggle_done, reorder_memos, settings::get_settings, set_window_visible, move_to_trash, restore_from_trash, permanent_delete, save_current_position, set_shortcut, settings::set_theme, settings::set_skin, clear_trashed, set_reminder, clear_reminder, show_main_window, handle_system_wakeup, fe_log, images::save_image, images::delete_image, images::get_image_base64, images::get_image_path, open_image_viewer, close_image_viewer, get_viewer_payload, save_hide_position, animate_window_position, cancel_window_animation, start_hover_detection, ocr_image, quick_note::open_quick_note, quick_note::close_quick_note, quick_note::save_quick_note, quick_note::save_quick_note_image, quick_note::move_quick_note_images, quick_note::set_note_shortcut])
+        .invoke_handler(tauri::generate_handler![close_to_tray, resize_window, set_position_and_size, settings::toggle_always_on_top, frontend_ready, get_memos, get_trashed_memos, add_memo, update_memo, delete_memo, toggle_pin, set_color, toggle_done, reorder_memos, settings::get_settings, set_window_visible, move_to_trash, restore_from_trash, undo_trash, permanent_delete, save_current_position, set_shortcut, settings::set_theme, settings::set_skin, settings::set_auto_trash_days, settings::set_auto_start, settings::set_templates, data::export_memos, data::import_memos, clear_trashed, set_reminder, clear_reminder, get_archived_memos, set_archived, get_boards, create_board, update_board, delete_board, set_memo_board, show_main_window, test_main_window_shortcut, handle_system_wakeup, fe_log, images::save_image, images::delete_image, images::get_image_base64, images::get_image_path, open_image_viewer, close_image_viewer, get_viewer_payload, save_hide_position, animate_window_position, cancel_window_animation, start_hover_detection, ocr_image, quick_note::open_quick_note, quick_note::close_quick_note, quick_note::save_quick_note, quick_note::save_quick_note_image, quick_note::move_quick_note_images, quick_note::set_note_shortcut])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
