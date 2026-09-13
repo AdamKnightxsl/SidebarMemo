@@ -60,11 +60,16 @@ function splitAroundBlocks(p: Element): void {
 
 /** 清掉块与块之间的纯空白文本节点；<li>／code／pre 里的空白是正文，不能碰 */
 function cleanStrayBlankText(root: HTMLElement): void {
+  // 光标落在一个待删的空白节点里时，删了它光标会跳回编辑器开头——这个节点先留着
+  const sel = window.getSelection();
+  const anchor = sel?.anchorNode;
+  const focus = sel?.focusNode;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const doomed: Text[] = [];
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const t = n as Text;
     if (!/^\s+$/.test(t.textContent || "")) continue;
+    if (t === anchor || t === focus) continue;
     const parent = t.parentElement;
     if (!parent) continue;
     if (/^(LI|CODE|PRE)$/.test(parent.tagName)) continue;
@@ -79,14 +84,149 @@ function isBlockNode(node: Node | null): boolean {
   return !!node && node.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.test((node as Element).tagName);
 }
 
+function isBr(node: Node | null | undefined): boolean {
+  return !!node && node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName === "BR";
+}
+
+function hasContent(node: Node | null): boolean {
+  for (let n = node; n; n = n.nextSibling) {
+    if (n.nodeType === Node.ELEMENT_NODE) return true;
+    if ((n.textContent || "").trim()) return true;
+  }
+  return false;
+}
+
+/** 从 from（含）起把节点搬进紧随其后的同类新块 */
+function cutBlock(block: HTMLElement, from: Node): HTMLElement {
+  const tail = document.createElement(block.tagName.toLowerCase());
+  const moving: Node[] = [];
+  for (let n: Node | null = from; n; n = n.nextSibling) moving.push(n);
+  moving.forEach((n) => tail.appendChild(n));
+  block.after(tail);
+  return tail;
+}
+
+/**
+ * 复选框只能是它所在块的第一个节点。落在段落中间（包括换行出来的第二行）时，
+ * 序列化只能把整段抬成一条待办，前面的字会被并进待办正文——
+ * 就是「在第二行插入待办，退出编辑后第一行变成了待办」。
+ * 这里按「前文一块 / 待办一块 / 后文一块」拆开，待办只吃自己那一行。
+ */
+function splitBlocksAtBareCheckboxes(root: HTMLElement): void {
+  const boxes = Array.from(root.querySelectorAll("input[type=checkbox]")).filter((box) => {
+    const block = box.parentElement;
+    if (!block || block === root || !/^(P|DIV)$/.test(block.tagName)) return false;
+    if (block.closest("li")) return false; // 列表项里的框本来就在行首
+    return block.firstElementChild !== box;
+  });
+  // 从后往前拆，先拆的不会让后拆的节点位置失效
+  for (const box of boxes.reverse()) {
+    const block = box.parentElement as HTMLElement;
+    const tail = cutBlock(block, box);
+    if (isBr(block.lastChild)) block.lastChild?.remove();
+    if (!hasContent(block.firstChild) && !block.querySelector("img,input")) block.remove();
+    // 待办只占自己这一行：后面还有正文就再切一刀，那行不该被并进待办项
+    const kids = Array.from(tail.childNodes);
+    const br = kids.slice(kids.indexOf(box) + 1).find((n) => isBr(n)) || null;
+    if (br && hasContent(br.nextSibling)) {
+      const after = br.nextSibling as Node;
+      br.remove();
+      cutBlock(tail, after);
+    }
+  }
+}
+
+/**
+ * 标题行里点「有序/无序」，Chromium 产出的是 <h1><ol><li>…</li></ol></h1>。
+ * 这种嵌套交给 flattenBlocksInHeading 会被合并回标题（那是「列表项里点标题」要的语义），
+ * 用户看到的就是点了列表按钮毫无反应。列表命令这条路径先调本函数：让列表吃掉标题行，
+ * 和段落点列表的结果一致；标题里列表之外的文字按原顺序包成段落留在原位。
+ */
+export function releaseListsFromHeading(root: HTMLElement): void {
+  for (const h of Array.from(root.querySelectorAll("h1,h2,h3,h4,h5,h6"))) {
+    const isList = (n: Node) => n.nodeType === Node.ELEMENT_NODE && /^(UL|OL)$/.test((n as Element).tagName);
+    if (!Array.from(h.children).some(isList)) continue;
+    const parent = h.parentNode;
+    if (!parent) continue;
+    let run: HTMLElement | null = null;
+    const runs: HTMLElement[] = [];
+    for (const node of Array.from(h.childNodes)) {
+      if (isList(node)) {
+        run = null;
+        parent.insertBefore(node, h);
+        continue;
+      }
+      if (!run) {
+        run = document.createElement("p");
+        parent.insertBefore(run, h);
+        runs.push(run);
+      }
+      run.appendChild(node);
+    }
+    parent.removeChild(h);
+    runs.forEach((r) => { if (!(r.textContent || "").trim() && !r.querySelector("img,input")) r.remove(); });
+  }
+}
+
+/** 标题行首的编号 / 圆点前缀。只认 1–3 位数字且后面必须跟空白，免得把「2024. 年度总结」这类手打文字吃掉 */
+const HEADING_MARKER = /^(?:([0-9]{1,3})([.、])\s+|([·•])\s+)/;
+
+/**
+ * 标题行上的「有序」走的是另一条路：markdown 里一行只能是一种块，`# ` 后面的 `1.` 不会被解析成列表，
+ * 所以那种软件的产物形态就是「编号写成标题文字」（`## 1. 阿萨德`）。这里按文档顺序把这些标题行的
+ * 编号连续重排，删掉中间一条后面自动补上。只在工具栏改完和保存前调用，不进 normalizeEditorDom：
+ * 归一化每敲一个字都跑，会把用户正在打的「1. 」抢改掉、光标跟着乱跳。
+ */
+export function numberHeadings(root: HTMLElement): void {
+  let n = 0;
+  for (const h of Array.from(root.querySelectorAll("h1,h2,h3,h4,h5,h6"))) {
+    const first = h.firstChild;
+    if (!first || first.nodeType !== Node.TEXT_NODE) continue;
+    const text = first.textContent || "";
+    const m = HEADING_MARKER.exec(text);
+    if (!m || !m[1]) continue; // 圆点行不参与编号
+    n++;
+    if (m[1] === String(n)) continue;
+    first.textContent = `${n}. ${text.slice(m[0].length)}`;
+  }
+}
+
+/**
+ * 标题里不能嵌列表/段落：markdown 没有「既是标题又是待办」的行。
+ * Chromium 的 formatBlock 作用在列表项上会产出 <h1><ul><li>…</li></ul></h1>，
+ * 不拆平就序列化成「# - [ ] 文字」，卡片上直接露出 markdown 符号。
+ * 这里把块级子节点的行内内容并进标题（文字和加粗都留下）；复选框和换行只能当场丢掉，
+ * 留着也是保存时静默消失，不如让用户立刻看到是被标题覆盖了。
+ */
+function flattenBlocksInHeading(root: HTMLElement): void {
+  for (const h of Array.from(root.querySelectorAll("h1,h2,h3,h4,h5,h6"))) {
+    h.querySelectorAll("input[type=checkbox], br").forEach((n) => n.remove());
+    // 旧版本把这个组合存成了「# - [ ] 文字」，重开时标题里只剩纯文本符号，
+    // 结构上拆不出来，只能识别后剥掉，否则这条正文永远修不好
+    const firstText = Array.from(h.childNodes).find((n) => n.nodeType === Node.TEXT_NODE);
+    if (firstText) {
+      firstText.textContent = (firstText.textContent || "").replace(/^\s*[-*+][ \t]+\[[ xX]\][ \t]+/, "");
+    }
+    for (const b of Array.from(h.children).filter((c) => BLOCK_CHILD.test(c.tagName))) {
+      for (const node of Array.from(b.childNodes)) {
+        const wrap = node.nodeType === Node.ELEMENT_NODE && /^(LI|P|DIV)$/.test((node as Element).tagName);
+        for (const kid of Array.from(wrap ? node.childNodes : [node])) h.appendChild(kid);
+      }
+      b.remove();
+    }
+  }
+}
+
 /**
  * 编辑区 DOM 归一化。工具栏每执行一条命令跑一次：
  * 非法嵌套不拆掉，后面按回车时 Chromium 会产出更乱的结构，光标和序列化都没法预期。
  */
 export function normalizeEditorDom(root: HTMLElement): void {
+  flattenBlocksInHeading(root);
   for (const el of Array.from(root.querySelectorAll("p"))) {
     if (Array.from(el.children).some((c) => BLOCK_CHILD.test(c.tagName))) splitAroundBlocks(el);
   }
+  splitBlocksAtBareCheckboxes(root);
   cleanStrayBlankText(root);
 }
 
@@ -127,11 +267,11 @@ function escapeInline(text: string, atLineStart: boolean): string {
 /** 行内遇到块级元素（execCommand 的 formatBlock 会把标题塞进 <p>）时单独按块序列化 */
 const BLOCK_TAGS = /^(P|DIV|H[1-6]|UL|OL|LI|BLOCKQUOTE|PRE|HR)$/;
 
-function blockMarkdown(el: Element): string {
+function blockMarkdown(el: Element, inListItem = false): string {
   const holder = document.createElement("div");
   holder.appendChild(el.cloneNode(true));
   const out: string[] = [];
-  blocksOf(holder, "", out);
+  blocksOf(holder, "", out, inListItem);
   return out.join("\n").trim();
 }
 
@@ -140,7 +280,7 @@ function blockMarkdown(el: Element): string {
  * 必须拆：列表和紧跟的普通行之间没有空行的话，markdown 的 lazy continuation
  * 会把那一行并进最后一个列表项，用户写的普通文字就成了列表内容。
  */
-function splitBlockParagraph(el: Element, indent: string, out: string[]): void {
+function splitBlockParagraph(el: Element, indent: string, out: string[], inListItem = false): void {
   const holder = document.createElement("div");
   let run: HTMLElement | null = null;
   for (const child of Array.from(el.childNodes)) {
@@ -155,11 +295,13 @@ function splitBlockParagraph(el: Element, indent: string, out: string[]): void {
     }
     run.appendChild(child.cloneNode(true));
   }
-  blocksOf(holder, indent, out);
+  blocksOf(holder, indent, out, inListItem);
 }
 
 /** 行内节点 → markdown 片段。atLineStart 只影响文本节点的行首转义 */
-function inline(node: Node, state: { lineStart: boolean }): string {
+type SerState = { lineStart: boolean; inListItem?: boolean };
+
+function inline(node: Node, state: SerState): string {
   if (node.nodeType === Node.TEXT_NODE) {
     const raw = node.textContent || "";
     if (!raw) return "";
@@ -174,7 +316,7 @@ function inline(node: Node, state: { lineStart: boolean }): string {
 
   if (BLOCK_TAGS.test(tag)) {
     // 块边界必须还原成换行，否则标题会和后一段挤在同一行
-    const body = blockMarkdown(el);
+    const body = blockMarkdown(el, state.inListItem);
     state.lineStart = true;
     return body ? "\n" + body + "\n" : "\n";
   }
@@ -188,6 +330,10 @@ function inline(node: Node, state: { lineStart: boolean }): string {
     return title ? `![${alt}](${src} "${title}")` : `![${alt}](${src})`;
   }
   if (tag === "BR") {
+    // 已经在新行行首再遇到 <br>，说明用户要的是一个空行。写成 "\n" 会在 markdown 里
+    // 造出真空行，而 markdown 的空行切断段落，回填编辑器时空行就退化成几像素的段距。
+    // 这里写字面 <br>（GFM 原样透传），空行留在同一段内部，两种视图都是完整一行高。
+    if (state.lineStart) return "<br>";
     state.lineStart = true;
     return "\n";
   }
@@ -213,14 +359,14 @@ function inline(node: Node, state: { lineStart: boolean }): string {
   return childrenInline(el, state);
 }
 
-function wrap(el: Element, open: string, close: string, state: { lineStart: boolean }): string {
-  const inner = childrenInline(el, { lineStart: state.lineStart });
+function wrap(el: Element, open: string, close: string, state: SerState): string {
+  const inner = childrenInline(el, { lineStart: state.lineStart, inListItem: state.inListItem });
   state.lineStart = false;
   if (!inner.trim()) return inner;
   return `${open}${inner}${close}`;
 }
 
-function childrenInline(el: Element, state: { lineStart: boolean }): string {
+function childrenInline(el: Element, state: SerState): string {
   let out = "";
   for (const child of Array.from(el.childNodes)) out += inline(child, state);
   return out;
@@ -232,6 +378,13 @@ function checkboxOf(li: Element): "x" | " " | null {
   if (!box) return null;
   return (box as HTMLInputElement).checked ? "x" : " ";
 }
+
+/**
+ * marked 判定任务项要求 `[ ]` 后面至少跟一个非空字符，正文为空的待办写成 `- [ ]`
+ * 就退化成正文里的原始 markdown 文本（复选框消失、点不动）。零宽字符既不是空白
+ * 也不可见，能保住复选框结构。
+ */
+const EMPTY_TASK_TEXT = "\u200b";
 
 /** 一个 <ul>/<ol> → markdown 列表块。父项行写完才会轮到它，嵌套项因此排在父项之后 */
 function emitList(list: Element, indent: string, out: string[]): void {
@@ -245,7 +398,7 @@ function emitList(list: Element, indent: string, out: string[]): void {
 
 function liLines(el: Element, marker: string, indent: string, out: string[]): void {
   const box = checkboxOf(el);
-  const state = { lineStart: true };
+  const state: SerState = { lineStart: true, inListItem: true };
   const nested: Element[] = [];
   let text = "";
   for (const child of Array.from(el.childNodes)) {
@@ -258,9 +411,12 @@ function liLines(el: Element, marker: string, indent: string, out: string[]): vo
   }
   // marked 在 <input> 后面留了一个空格，不吃掉就会变成「- [ ]  文字」
   const prefix = box === null ? marker : `- [${box}] `;
-  const body = prefix + text.replace(/^\s+/, "").replace(/\s+$/, "");
-  // 续行与嵌套都要对齐到标记之后：「- 」两格、「1. 」三格，缩进不对会被重新解析成续行
-  const pad = " ".repeat(prefix.length);
+  const bodyText = text.replace(/^\s+/, "").replace(/\s+$/, "");
+  const body = prefix + (box !== null && !bodyText.trim() ? EMPTY_TASK_TEXT : bodyText);
+  // 续行与嵌套只对齐到列表标记之后（「- 」两格、「1. 」三格）。
+  // 不能用 prefix 长度：待办前缀是 6 格，缩进 4 格以上会被 markdown 当代码块，
+  // 嵌套待办会被解析坏，这条正文也就过不了 isRoundTripSafe。
+  const pad = " ".repeat(marker.length);
   const lines = body.split("\n");
   out.push(indent + lines[0]);
   for (const rest of lines.slice(1)) {
@@ -272,7 +428,7 @@ function liLines(el: Element, marker: string, indent: string, out: string[]): vo
   }
 }
 
-function blocksOf(root: Element, indent: string, out: string[]): void {
+function blocksOf(root: Element, indent: string, out: string[], inListItem = false): void {
   for (const el of Array.from(root.children)) {
     const tag = el.tagName;
     if (tag === "UL" || tag === "OL") {
@@ -280,7 +436,7 @@ function blocksOf(root: Element, indent: string, out: string[]): void {
       out.push("");
       continue;
     }
-    const state = { lineStart: true };
+    const state: SerState = { lineStart: true, inListItem };
     if (tag === "HR") {
       out.push(indent + "---", "");
       continue;
@@ -300,21 +456,27 @@ function blocksOf(root: Element, indent: string, out: string[]): void {
     }
     if (tag === "BLOCKQUOTE") {
       const inner: string[] = [];
-      blocksOf(el, "", inner);
+      blocksOf(el, "", inner, inListItem);
       out.push(...inner.filter((l, i) => l !== "" || i < inner.length - 1).map((l) => (l ? `${indent}> ${l}` : `${indent}>`)), "");
       continue;
     }
     // 段落里还嵌着列表／标题时不能按一段处理，否则列表后面丢空行
     if ((tag === "P" || tag === "DIV") && el.querySelector(":scope > ul, :scope > ol, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6, :scope > blockquote, :scope > pre")) {
-      splitBlockParagraph(el, indent, out);
+      splitBlockParagraph(el, indent, out, inListItem);
       continue;
     }
     // P / DIV（编辑器换行产生的 div）/ 裸文本容器：都按「一段」处理
     let body = childrenInline(el, state);
-    // 工具栏插入的待办框是段落里的裸 input（不在 li 内），不认就会整个丢掉
-    const box = checkboxOf(el);
-    if (box !== null) body = `- [${box}] ` + body.replace(/^\s+/, "");
-    if (body.trim() === "" && !el.querySelector("img,input")) {
+    // 工具栏插入的待办框是段落里的裸 input（不在 li 内），不认就会整个丢掉；
+    // 已经在 li 里时不能再补：liLines 写过前缀，重复就成了「- [ ] - [ ] 甲」。
+    const box = inListItem ? null : checkboxOf(el);
+    if (box !== null) {
+      const text = body.replace(/^\s+/, "");
+      body = `- [${box}] ` + (text.trim() ? text : EMPTY_TASK_TEXT);
+    }
+    // 整块只有换行（Shift+Enter 离开列表留下的光标占位空行）时不能写成 <br>：
+    // 独立成行的 <br> 会被 marked 当 HTML 块，第二次序列化又退化成空行，反复保存会漂移。
+    if (!body.replace(/<br\s*\/?>/gi, "").trim() && !el.querySelector("img,input")) {
       out.push("");
       continue;
     }

@@ -43,12 +43,29 @@ function between(v: number, a: number, b: number) {
   return v >= Math.min(a, b) && v <= Math.max(a, b);
 }
 
+/** 窗口所在显示器的工作区矩形（物理像素） */
+type WorkArea = { x: number; y: number; w: number; h: number; sf: number };
+
+/**
+ * 吸附态下窗口「完全贴边展开」的落位：贴边轴由吸附边和当前尺寸推出，另一轴沿用传入的实际位置。
+ * 隐藏与弹出两处都用它算（useCalendarSize 撑宽时遵循同一条规则），尺寸一变锚点就跟着变——
+ * 否则展开日历后沿用拖拽时的窄版落位，窗口会摆回旧位置、右半边留在屏幕外。
+ */
+function dockedPosition(edge: SnapEdge, wa: WorkArea, winW: number, winH: number, freeX: number, freeY: number) {
+  return {
+    x: edge === "left" ? wa.x : edge === "right" ? wa.x + wa.w - winW : freeX,
+    y: edge === "top" ? wa.y : edge === "bottom" ? wa.y + wa.h - winH : freeY,
+  };
+}
+
 // 首启引导进行中暂停贴边自动隐藏（useTour 置为 true）：窗口在引导中途滑走会让聚光框和真实界面对不上
 export const tourSuspended = ref(false);
 
+/** 当前吸附的屏幕边缘。模块级共享：日历撑宽要按这条边决定钉住哪一侧 */
+export const snappedEdge = ref<SnapEdge>(null);
+
 // 贴边吸附隐藏与弹出动画：拖拽窗口到屏幕边缘时自动吸附，失焦后隐藏到边缘，鼠标悬停时弹出。
 export function useWindowSnap() {
-  const snappedEdge = ref<SnapEdge>(null);
   const isHidden = ref(false);
   const appWindow = getCurrentWindow();
 
@@ -107,8 +124,9 @@ export function useWindowSnap() {
       animatingToTray = true;
       state = "hiding";
       try {
-        const [pos, wa] = await Promise.all([
+        const [pos, size, wa] = await Promise.all([
           appWindow.outerPosition(),
+          appWindow.outerSize(),
           getWorkArea(),
         ]);
 
@@ -124,6 +142,7 @@ export function useWindowSnap() {
         let startX = pos.x;
         let startY = pos.y;
 
+        refreshSnapTarget(wa, pos, size);
         if (snappedEdge.value && snapTarget) {
           startX = snapTarget.x;
           startY = snapTarget.y;
@@ -368,6 +387,20 @@ export function useWindowSnap() {
     }
   }
 
+  /**
+   * 按窗口当前实际尺寸重算吸附落位点。
+   * 日历撑宽会改宽度并让右缘吸附的窗口整体左移，trySnap 时按窄版算的锚点就此过期：
+   * 沿用它会把宽版窗口摆回窄版落位点，右半边伸出屏幕外，看起来像「只弹出了主界面」。
+   * 另一轴取窗口实际位置：滑出只沿一条轴走，另一轴没动过，而日历撑高会顺手把贴底的窗口
+   * 往上夹几个像素，沿旧锚点会先跳一下。
+   * pos/size 由调用方实测后传进来：紧接着还要用同一份几何，分两次量会读到撑宽收尾的不一致值。
+   */
+  function refreshSnapTarget(wa: WorkArea, pos: { x: number; y: number }, size: { width: number; height: number }) {
+    const edge = snappedEdge.value;
+    if (!edge) return;
+    snapTarget = dockedPosition(edge, wa, size.width as number, size.height as number, pos.x, pos.y);
+  }
+
   async function hideToEdge() {
     if (state !== "visible" || !snappedEdge.value) return;
     if (tourSuspended.value) return;
@@ -383,20 +416,16 @@ export function useWindowSnap() {
       const wa = await getWorkArea();
     if (!wa) { state = "visible"; await restoreAlwaysOnTop(); return; }
 
-    const size = await appWindow.outerSize();
+    const [size, actualPos] = await Promise.all([appWindow.outerSize(), appWindow.outerPosition()]);
     const winW = size.width as number;
     const winH = size.height as number;
+    // 锚点跟着实测尺寸走：展开日历把窗口撑宽并整体左移后，trySnap 时的窄版落位已过期
+    refreshSnapTarget(wa, actualPos, size);
 
-    // 如果 snapTarget 不存在，用当前窗口位置作为起点
-    let safeX = snapTarget?.x;
-    let safeY = snapTarget?.y;
-    if (safeX === undefined || safeY === undefined) {
-      const curPos = await appWindow.outerPosition();
-      safeX = curPos.x;
-      safeY = curPos.y;
-    }
+    // snapTarget 不存在时用当前窗口位置作为起点
+    const safeX = snapTarget?.x ?? actualPos.x;
+    const safeY = snapTarget?.y ?? actualPos.y;
 
-    const actualPos = await appWindow.outerPosition();
     savedPosition = { x: safeX, y: safeY, w: winW, h: winH };
     const hiddenPx = hiddenPxFor(snappedEdge.value, wa);
 
@@ -487,16 +516,22 @@ export function useWindowSnap() {
           return;
         }
 
-      const targetX = savedPosition?.x ?? 0;
-      const targetY = savedPosition?.y ?? 0;
+      // 落位与起点都按弹出瞬间的实测尺寸算：隐藏期间日历可能把窗口撑宽了，
+      // 沿用隐藏时存的坐标会把宽版窗口摆回窄版落位点，右半边留在屏幕外
+      const live = await appWindow.outerSize();
+      const winW = live.width as number;
+      const winH = live.height as number;
+      const docked = dockedPosition(
+        snappedEdge.value, wa, winW, winH, savedPosition?.x ?? 0, savedPosition?.y ?? 0,
+      );
+      const targetX = docked.x;
+      const targetY = docked.y;
 
       let startX = targetX;
       let startY = targetY;
       const hiddenPx = hiddenPxFor(snappedEdge.value, wa);
 
       if (snappedEdge.value) {
-        const winW = savedPosition?.w ?? 300;
-        const winH = savedPosition?.h ?? 600;
         switch (snappedEdge.value) {
           case "left":   startX = wa.x - (winW - hiddenPx); break;
           case "right":  startX = wa.x + wa.w - hiddenPx; break;

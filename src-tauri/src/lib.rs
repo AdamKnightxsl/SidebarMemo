@@ -341,15 +341,6 @@ fn resize_window(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), S
 }
 
 #[tauri::command]
-fn set_position_and_size(app: tauri::AppHandle, x: i32, y: i32, w: u32, h: u32) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)));
-        let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(w, h)));
-    }
-    Ok(())
-}
-
-#[tauri::command]
 fn close_to_tray(app: tauri::AppHandle, state: tauri::State<AppState>) {
     if let Some(w) = app.get_webview_window("main") {
         save_window_position(&app, &w);
@@ -404,6 +395,128 @@ fn cancel_window_animation() {
     ANIM_GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
+/// 末段最小步长推进：easing 尾部每帧位移不足 min_step 时强制按 min_step 前进，
+/// 避免窗口以 1px/帧龟速爬行时 WebView 内容与窗框异步刷新造成的左右抖动
+fn advance_toward(last: i32, desired: i32, target: i32, min_step: i32) -> i32 {
+    if last == target {
+        return target;
+    }
+    let dir = (target - last).signum();
+    let mut next = desired;
+    if (next - last) * dir < min_step {
+        next = last + dir * min_step;
+    }
+    // 不越过目标
+    if (target - next) * dir <= 0 { target } else { next }
+}
+
+/// 隐藏/收起：前 80ms 走 70%，中 100ms 走 70%~90%，后 140ms 走最后 10%（总 320ms），速度 4.6→1.0→0.28→0.18。
+/// t 为按各自总时长归一化后的进度
+fn ease_hide(t: f64) -> f64 {
+    if t < 80.0 / 320.0 {
+        4.6 * t - 7.2 * t * t
+    } else if t < 180.0 / 320.0 {
+        let u = t - 80.0 / 320.0;
+        0.70 + 1.0 * u - 1.152 * u * u
+    } else {
+        let w = t - 180.0 / 320.0;
+        0.90 + 0.28 * w - 0.117551 * w * w
+    }
+}
+
+/// 弹出/展开：前 80ms 走 70%，中 100ms 走 70%~90%，后 100ms 走最后 10%（总 280ms），速度 4.2→0.70→0.42→0.14
+fn ease_expand(t: f64) -> f64 {
+    if t < 80.0 / 280.0 {
+        4.2 * t - 6.125 * t * t
+    } else if t < 180.0 / 280.0 {
+        let u = t - 80.0 / 280.0;
+        0.70 + 0.70 * u - 0.392 * u * u
+    } else {
+        let w = t - 180.0 / 280.0;
+        0.90 + 0.42 * w - 0.392 * w * w
+    }
+}
+
+/// 把帧节奏对齐到显示器刷新边界。
+/// 关键：用「当前真实时间」而非循环顶部的旧 elapsed 计算下一帧边界。
+/// 若沿用旧 elapsed，当某帧 set_position 抖动、耗时超过一帧时，算出的 next_frame 会
+/// 落在 now 之前 → 跳过等待、连渲两帧再突然空一拍，正是「偶发掉帧」的直接来源。
+/// floor+1 保证边界严格位于未来，节奏始终对齐刷新率（个别超时帧只会规律地跳过一帧）。
+fn align_frame(start_time: std::time::Instant, frame_interval: std::time::Duration) {
+    let now = std::time::Instant::now();
+    let cur = now.duration_since(start_time).as_secs_f64();
+    let next_idx = (cur / frame_interval.as_secs_f64()).floor() as u64 + 1;
+    let next_frame = start_time + frame_interval * (next_idx.min(u32::MAX as u64) as u32);
+    if next_frame > now {
+        let remaining = next_frame - now;
+        if remaining > std::time::Duration::from_millis(2) {
+            // 大于 2ms 的部分用 sleep 让出 CPU
+            std::thread::sleep(remaining - std::time::Duration::from_millis(1));
+        }
+        // 剩余部分 spin 到精确边界（sleep 可能过冲，spin 补偿）
+        while std::time::Instant::now() < next_frame {
+            std::thread::yield_now();
+        }
+    }
+}
+
+/// 实测「窗口矩形」与「客户区」两处坐标的差值：
+/// off = 客户区原点 − 窗口原点，extra = 窗口尺寸 − 客户区尺寸。
+/// 无边框无阴影时四项全为 0；哪天改回 shadow:true 或带上 WS_THICKFRAME，
+/// DWM 会留一圈看不见的边框（左右不对称），不补偿就会让贴屏幕边的那一侧漏出几个像素。
+#[cfg(target_os = "windows")]
+fn geometry_offsets(window: &tauri::WebviewWindow) -> (i32, i32, i32, i32) {
+    use windows::Win32::Foundation::{POINT, RECT};
+    use windows::Win32::Graphics::Gdi::ClientToScreen;
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetWindowRect};
+    let Ok(hwnd) = window.hwnd() else {
+        return (0, 0, 0, 0);
+    };
+    let hwnd = windows::Win32::Foundation::HWND(hwnd.0 as _);
+    let mut win_rect = RECT::default();
+    let mut client_rect = RECT::default();
+    let mut client_origin = POINT::default();
+    unsafe {
+        if GetWindowRect(hwnd, &mut win_rect).is_err()
+            || GetClientRect(hwnd, &mut client_rect).is_err()
+            || !ClientToScreen(hwnd, &mut client_origin).as_bool()
+        {
+            return (0, 0, 0, 0);
+        }
+    }
+    (
+        client_origin.x - win_rect.left,
+        client_origin.y - win_rect.top,
+        (win_rect.right - win_rect.left) - client_rect.right,
+        (win_rect.bottom - win_rect.top) - client_rect.bottom,
+    )
+}
+
+/// 一次调用同时设定窗口矩形原点与客户区尺寸。
+/// 必须原子完成：分成 set_position + set_size 会渲染出「挪了位还没变形」的中间帧，
+/// 右缘吸附撑宽时表现为窗口右边缘来回抖。调用方手里的客户区尺寸要先用 geometry_offsets 换算。
+#[cfg(target_os = "windows")]
+fn set_geometry(window: &tauri::WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOZORDER,
+    };
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let _ = SetWindowPos(
+                HWND(hwnd.0 as _), None, x, y, w.max(1), h.max(1),
+                SWP_ASYNCWINDOWPOS | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_geometry(window: &tauri::WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+    let _ = window.set_size(tauri::PhysicalSize::new(w.max(1) as u32, h.max(1) as u32));
+}
+
 #[tauri::command]
 async fn animate_window_position(
     app: tauri::AppHandle,
@@ -411,6 +524,7 @@ async fn animate_window_position(
     target_y: i32,
     duration_ms: u64,
     expand: Option<bool>,
+    linear: Option<bool>,
 ) -> Result<(), String> {
     let window = app.get_webview_window("main").ok_or("no main window")?;
     // 领取新代次，同时使仍在运行的旧动画失效
@@ -430,6 +544,7 @@ async fn animate_window_position(
     #[cfg(not(target_os = "windows"))]
     let refresh_rate = 60u32;
     let is_expand = expand.unwrap_or(false);
+    let is_linear = linear.unwrap_or(false);
 
     // 逐帧动画放到独立阻塞线程执行。
     // 原实现跑在 Tauri 的 tokio 异步 worker 上，每帧 sleep().await 会与弹出/隐藏期间的其它
@@ -448,21 +563,6 @@ async fn animate_window_position(
         let mut last_x = start_pos.x;
         let mut last_y = start_pos.y;
 
-        // 末段最小步长推进：easing 尾部每帧位移不足 min_step 时强制按 min_step 前进，
-        // 避免窗口以 1px/帧龟速爬行时 WebView 内容与窗框异步刷新造成的左右抖动
-        fn advance_toward(last: i32, desired: i32, target: i32, min_step: i32) -> i32 {
-            if last == target {
-                return target;
-            }
-            let dir = (target - last).signum();
-            let mut next = desired;
-            if (next - last) * dir < min_step {
-                next = last + dir * min_step;
-            }
-            // 不越过目标
-            if (target - next) * dir <= 0 { target } else { next }
-        }
-
         loop {
             // 被新动画或显式取消超越：立即退出，且不落位到本次目标（位置已归新动画管辖）
             if ANIM_GENERATION.load(Ordering::SeqCst) != my_gen {
@@ -475,31 +575,10 @@ async fn animate_window_position(
                 break;
             }
             let t = elapsed.as_secs_f64() / duration.as_secs_f64();
-            // 弹出与隐藏使用不同曲线：expand=Some(true) 为弹出（用户单独调速），否则为隐藏及吸附对齐（保持原参数）。
-            // 两者均为三段二次缓动，各段交界处位置与速度连续（无突变不顿挫）；尾端由最小步长机制平稳落位不抖动
-            let ease = if is_expand {
-                // 弹出：前 80ms 走 70%，中 100ms 走 70%~90%，后 100ms 走最后 10%（总 280ms），速度 4.2→0.70→0.42→0.14
-                if t < 80.0 / 280.0 {
-                    4.2 * t - 6.125 * t * t
-                } else if t < 180.0 / 280.0 {
-                    let u = t - 80.0 / 280.0;
-                    0.70 + 0.70 * u - 0.392 * u * u
-                } else {
-                    let w = t - 180.0 / 280.0;
-                    0.90 + 0.42 * w - 0.392 * w * w
-                }
-            } else {
-                // 隐藏：前 80ms 走 70%，中 100ms 走 70%~90%，后 140ms 走最后 10%（总 320ms），速度 4.6→1.0→0.28→0.18
-                if t < 80.0 / 320.0 {
-                    4.6 * t - 7.2 * t * t
-                } else if t < 180.0 / 320.0 {
-                    let u = t - 80.0 / 320.0;
-                    0.70 + 1.0 * u - 1.152 * u * u
-                } else {
-                    let w = t - 180.0 / 320.0;
-                    0.90 + 0.28 * w - 0.117551 * w * w
-                }
-            };
+            // 三种进度：linear 为匀速（日历撑宽/还原只要挪位置，用户明确要求不要缓动）；
+            // 否则弹出与隐藏各用一条曲线。后两条均为三段二次缓动，各段交界处位置与速度连续
+            // （无突变不顿挫）；尾端由最小步长机制平稳落位不抖动
+            let ease = if is_linear { t } else if is_expand { ease_expand(t) } else { ease_hide(t) };
             let desired_x = start_pos.x + (dx as f64 * ease).round() as i32;
             let desired_y = start_pos.y + (dy as f64 * ease).round() as i32;
             let x = advance_toward(last_x, desired_x, target_x, 2);
@@ -512,25 +591,7 @@ async fn animate_window_position(
                 break;
             }
 
-            // 关键：用「当前真实时间」而非循环顶部的旧 elapsed 计算下一帧边界。
-            // 若沿用旧 elapsed，当某帧 set_position 抖动、耗时超过一帧时，算出的 next_frame 会
-            // 落在 now 之前 → 跳过等待、连渲两帧再突然空一拍，正是「偶发掉帧」的直接来源。
-            // floor+1 保证边界严格位于未来，节奏始终对齐刷新率（个别超时帧只会规律地跳过一帧）。
-            let now = std::time::Instant::now();
-            let cur = now.duration_since(start_time).as_secs_f64();
-            let next_idx = (cur / frame_interval.as_secs_f64()).floor() as u64 + 1;
-            let next_frame = start_time + frame_interval * (next_idx.min(u32::MAX as u64) as u32);
-            if next_frame > now {
-                let remaining = next_frame - now;
-                if remaining > std::time::Duration::from_millis(2) {
-                    // 大于 2ms 的部分用 sleep 让出 CPU
-                    std::thread::sleep(remaining - std::time::Duration::from_millis(1));
-                }
-                // 剩余部分 spin 到精确边界（sleep 可能过冲，spin 补偿）
-                while std::time::Instant::now() < next_frame {
-                    std::thread::yield_now();
-                }
-            }
+            align_frame(start_time, frame_interval);
         }
 
         // 恢复默认定时器分辨率
@@ -543,6 +604,19 @@ async fn animate_window_position(
     .await
     .map_err(|e| format!("animation task panicked: {}", e))?;
 
+    Ok(())
+}
+
+/// 一次原子设定窗口的位置与客户区尺寸（日历进/出时那两次「瞬时」变形）。
+/// 刻意不做逐帧尺寸动画：本窗口是 transparent:true 的分层窗口，WebView2 的合成表面每帧都要
+/// 随窗框重新合成、恒定落后一两帧，逐帧变宽就会让贴边那条 0.5px 边框线在窗口边缘来回闪。
+/// 日历动画因此改成「尺寸一次到位 + 只挪位置的逐帧滑动」，把看不见的那次变形安排到屏幕外。
+/// 坐标语义与前端一致：x/y 是窗口矩形原点（outerPosition），w/h 是客户区尺寸（innerSize）。
+#[tauri::command]
+fn set_window_geometry(app: tauri::AppHandle, x: i32, y: i32, w: u32, h: u32) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("no main window")?;
+    let (off_x, off_y, extra_w, extra_h) = geometry_offsets(&window);
+    set_geometry(&window, x - off_x, y - off_y, w as i32 + extra_w, h as i32 + extra_h);
     Ok(())
 }
 
@@ -770,31 +844,39 @@ pub fn run() {
     let saved_settings = settings.clone();
 
     // 开机自启开着时，每次启动按当前 exe 路径重申一次启动项：
-    // NSIS 更新或换安装目录后，注册表里的旧路径会失效，而界面仍显示「已开启」
-    #[cfg(target_os = "windows")]
+    // NSIS 更新或换安装目录后，注册表里的旧路径会失效，而界面仍显示「已开启」。
+    // 只对正式版做：debug 产物（tauri dev 那份）不含内嵌前端，把它写进启动项，
+    // 下次开机就是一扇连不上 localhost:1420 的错误页窗口；autostart::set_autostart 里也拦了「开」。
+    #[cfg(all(target_os = "windows", not(debug_assertions)))]
     if settings.auto_start {
         if let Err(e) = autostart::set_autostart(true) {
             eprintln!("[autostart] 刷新启动项失败: {}", e);
         }
     }
 
+    // 状态必须在窗口存在之前就注册好。setup 钩子是事件循环 Ready 事件里才跑的（tauri::App::make_run_event_loop_callback），
+    // 而配置里的窗口在 build() 阶段就开出来了，WebView 一加载完就能把 invoke 消息塞进队列：
+    // 开机冷启动那会儿磁盘是冷的、杀软还在扫盘，MemoStore::new() 要跑上几百毫秒，
+    // 前端 onMounted 的 get_boards 正好赶上「state not managed」——get_memos 有重试所以内容照常显示，
+    // 唯独导航栏集合整场会话都是空的，热启动再开一次又正常。放这里注册，任何 IPC 都早不过它。
+    let store = MemoStore::new().expect("Failed to init database");
+    let app_state = AppState {
+        store: Mutex::new(store),
+        settings: Mutex::new(settings.clone()),
+        window_visible: Mutex::new(false),
+        saved_hide_position: Mutex::new(None),
+        hover_stop_flag: Mutex::new(None),
+        viewer_payload: Mutex::new(None),
+    };
+
     tauri::Builder::default()
+        .manage(app_state)
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
-            let store = MemoStore::new().expect("Failed to init database");
-            app.manage(AppState {
-                store: Mutex::new(store),
-                settings: Mutex::new(settings.clone()),
-                window_visible: Mutex::new(false),
-                saved_hide_position: Mutex::new(None),
-                hover_stop_flag: Mutex::new(None),
-                viewer_payload: Mutex::new(None),
-            });
-
             // 每天首启做一次整库+图片快照，误删/库损坏时至少能回滚到前一天
             data::spawn_startup_backup();
 
@@ -900,7 +982,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![close_to_tray, resize_window, set_position_and_size, settings::toggle_always_on_top, frontend_ready, get_memos, get_trashed_memos, add_memo, update_memo, delete_memo, toggle_pin, set_color, toggle_done, reorder_memos, settings::get_settings, set_window_visible, move_to_trash, restore_from_trash, undo_trash, permanent_delete, save_current_position, set_shortcut, settings::set_theme, settings::set_skin, settings::set_auto_trash_days, settings::set_auto_start, settings::set_templates, data::export_memos, data::import_memos, clear_trashed, set_reminder, clear_reminder, get_archived_memos, set_archived, get_boards, create_board, update_board, delete_board, set_memo_board, show_main_window, test_main_window_shortcut, handle_system_wakeup, fe_log, images::save_image, images::delete_image, images::get_image_base64, images::get_image_path, open_image_viewer, close_image_viewer, get_viewer_payload, save_hide_position, animate_window_position, cancel_window_animation, start_hover_detection, ocr_image, quick_note::open_quick_note, quick_note::close_quick_note, quick_note::save_quick_note, quick_note::save_quick_note_image, quick_note::move_quick_note_images, quick_note::set_note_shortcut])
+        .invoke_handler(tauri::generate_handler![close_to_tray, resize_window, settings::toggle_always_on_top, frontend_ready, get_memos, get_trashed_memos, add_memo, update_memo, delete_memo, toggle_pin, set_color, toggle_done, reorder_memos, settings::get_settings, set_window_visible, move_to_trash, restore_from_trash, undo_trash, permanent_delete, save_current_position, settings::set_size_save_locked, set_shortcut, settings::set_theme, settings::set_skin, settings::set_auto_trash_days, settings::set_auto_start, settings::set_templates, data::export_memos, data::import_memos, clear_trashed, set_reminder, clear_reminder, get_archived_memos, set_archived, get_boards, create_board, update_board, delete_board, set_memo_board, show_main_window, test_main_window_shortcut, handle_system_wakeup, fe_log, images::save_image, images::delete_image, images::get_image_base64, images::get_image_path, open_image_viewer, close_image_viewer, get_viewer_payload, save_hide_position, animate_window_position, set_window_geometry, cancel_window_animation, start_hover_detection, ocr_image, quick_note::open_quick_note, quick_note::close_quick_note, quick_note::save_quick_note, quick_note::save_quick_note_image, quick_note::move_quick_note_images, quick_note::set_note_shortcut])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

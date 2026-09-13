@@ -12,7 +12,7 @@ import { usePopupPosition } from "../composables/usePopupPosition";
 import { useClickOutside } from "../composables/useClickOutside";
 import { useContextMenu } from "../composables/useContextMenu";
 import MarkdownToolbar from "../components/MarkdownToolbar.vue";
-import { mdToEditorHtml, htmlToMarkdown, isRoundTripSafe } from "../composables/mdSerialize";
+import { mdToEditorHtml, htmlToMarkdown, isRoundTripSafe, numberHeadings } from "../composables/mdSerialize";
 import { contentPreview, isComposing, REPEAT_OPTIONS, repeatKey, repeatLabel, type RepeatValue } from "../utils";
 
 // 配置 marked
@@ -21,7 +21,14 @@ marked.setOptions({ breaks: true, gfm: true });
 const props = defineProps<{
   memo: Memo;
   selected?: boolean;
+  /**
+   * 被别的视图当「详情」用（日历右侧那一整块）：正文不折叠、不给拖拽把手（这里没有可排序的列表），
+   * 双击也不就地编辑，而是 emit editRequest 把编辑权交回宿主，由宿主铺开和主界面同宽的编辑面板。
+   */
+  detail?: boolean;
 }>();
+
+const emit = defineEmits<{ editRequest: [] }>();
 
 const {
   updateMemo,
@@ -207,8 +214,8 @@ const isSearching = computed(() => searchQuery.value.trim().length > 0);
 const displayedContent = computed(() => {
   // 显式读取 searchQuery 确保 Vue 追踪依赖
   const q = searchQuery.value.trim();
-  // 搜索时展开显示全部内容
-  const collapsed = !expanded.value && q.length === 0;
+  // 搜索时展开显示全部内容；详情态本来就是给一条便签留出整块阅读区，同样不折叠
+  const collapsed = !expanded.value && !props.detail && q.length === 0;
   const source = collapsed ? truncatedContent.value : props.memo.content || "";
   const rawHtml = collapsed ? (marked.parse(source) as string) : renderedContent.value;
   // 复选框必须在高亮前换成空 span：不引入纯文本，<mark> 的下标才不会错位
@@ -243,20 +250,24 @@ function handleContentClick(e: MouseEvent) {
   }
   clickTimer = setTimeout(() => {
     clickTimer = null;
-    if (!editing.value) {
+    if (!editing.value && !props.detail) {
       expanded.value = !expanded.value;
     }
   }, 250);
 }
 
 /**
- * 勾选／取消第 k 个子任务：k 按 DOM 里 .md-task 的顺序数。
- * 净化白名单没放开 data-*，而 chip 是顺序插入的，DOM 顺序就是正文里的顺序。
+ * 勾选／取消一个子任务：优先用渲染时盖在框上的 data-task（正文里的第几个标记），
+ * 正文与渲染结果数量不一致时按 DOM 序号数会点一行改另一行。
  */
 async function toggleTaskItem(box: Element) {
-  const host = box.closest(".memo-content");
-  const chips = host ? Array.from(host.querySelectorAll(".md-task")) : [];
-  const index = chips.indexOf(box);
+  const stamped = box.getAttribute("data-task");
+  let index = stamped === null ? -1 : Number(stamped);
+  if (!Number.isInteger(index) || index < 0) {
+    const host = box.closest(".memo-content");
+    const chips = host ? Array.from(host.querySelectorAll(".md-task")) : [];
+    index = chips.indexOf(box);
+  }
   if (index < 0) return;
   const next = toggleTask(props.memo.content, index);
   if (next === null) return; // 渲染与正文对不上时不改任何字
@@ -268,6 +279,10 @@ function handleContentDblClick(e: MouseEvent) {
   if (clickTimer) {
     clearTimeout(clickTimer);
     clickTimer = null;
+  }
+  if (props.detail) {
+    emit("editRequest");
+    return;
   }
   startEdit();
   expanded.value = false;
@@ -337,6 +352,7 @@ function placeCaretAtEnd(el: HTMLElement) {
 function currentEditMarkdown(): string {
   if (editMode.value !== "wysiwyg") return editText.value.trim();
   const el = editorEl.value;
+  if (el) numberHeadings(el); // 编辑中删掉/新插一条带编号的标题，保存前按全文顺序补位
   return el ? htmlToMarkdown(el) : props.memo.content;
 }
 
@@ -361,8 +377,82 @@ function handleEditKeydown(e: KeyboardEvent) {
   }
   // 输入法组词期间的回车属于上屏动作，不能接管
   if (isComposing(e) || editMode.value !== "wysiwyg") return;
+  if (deleteTaskBox(e)) return;
   if (e.key !== "Enter" || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
   if (editorEl.value && leaveListWithBlankLine(editorEl.value)) e.preventDefault();
+}
+
+function checkboxNode(node: Node | null | undefined): Element | null {
+  return node && node.nodeType === Node.ELEMENT_NODE && (node as HTMLInputElement).type === "checkbox"
+    ? (node as Element)
+    : null;
+}
+
+/**
+ * 删掉待办的复选框＝这一行不想再是待办。只删框的话剩下 `- 文字`，
+ * markdown 里那就是无序列表，用户会看到一个自己没写过的圆点冒出来。
+ * 所以删框时连列表项一起摘成普通行（整项只剩框时这一行直接消失）。
+ */
+function deleteTaskBox(e: KeyboardEvent): boolean {
+  const root = editorEl.value;
+  const sel = window.getSelection();
+  if (!root || !sel || !sel.isCollapsed || sel.rangeCount === 0) return false;
+  if (e.key !== "Backspace" && e.key !== "Delete") return false;
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer;
+  const host = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+  if (!host || !root.contains(host)) return false;
+  let box: Element | null = null;
+  if (node.nodeType === Node.TEXT_NODE) {
+    const len = (node.textContent || "").length;
+    if (e.key === "Backspace" && range.startOffset === 0) box = checkboxNode(node.previousSibling);
+    else if (e.key === "Delete" && range.startOffset === len) box = checkboxNode(node.nextSibling);
+  } else {
+    const kids = Array.from(host.childNodes);
+    box = e.key === "Backspace" ? checkboxNode(kids[range.startOffset - 1]) : checkboxNode(kids[range.startOffset]);
+  }
+  const li = box?.closest("li");
+  if (!box || !li || !root.contains(li)) return false; // 段落里的框删完就是普通行，交给默认行为
+  e.preventDefault();
+  box.remove();
+  const line = unwrapListItem(li);
+  if (line) {
+    const next = document.createRange();
+    next.setStart(line, 0);
+    next.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(next);
+  }
+  return true;
+}
+
+/** 把一项从列表里摘出来变成独立一行，返回这一行；整项已空则返回 null */
+function unwrapListItem(li: Element): HTMLElement | null {
+  const list = li.parentElement as HTMLElement;
+  const kids = Array.from(list.children);
+  const at = kids.indexOf(li);
+  let tail: HTMLElement | null = null;
+  if (at >= 0 && at < kids.length - 1) {
+    tail = document.createElement(list.tagName.toLowerCase());
+    if (list.tagName === "OL") {
+      tail.setAttribute("start", String((Number(list.getAttribute("start")) || 1) + at + 1));
+    }
+    kids.slice(at + 1).forEach((k) => tail?.appendChild(k));
+  }
+  const hasText = !!(li.textContent || "").trim();
+  const line = document.createElement("div");
+  while (li.firstChild) line.appendChild(li.firstChild);
+  // marked 在复选框后面留了一个空格，搬进普通行会凭空多个行首空格
+  const first = line.firstChild;
+  if (first && first.nodeType === Node.TEXT_NODE) {
+    first.textContent = (first.textContent || "").replace(/^\s+/, "");
+    if (!first.textContent) first.remove();
+  }
+  li.remove();
+  if (hasText) list.after(line);
+  if (tail) (hasText ? line : list).after(tail);
+  if (!list.children.length) list.remove();
+  return hasText ? line : null;
 }
 
 /**
@@ -888,6 +978,8 @@ let dropBoard: string | null = null;
 function onMouseDown(e: MouseEvent) {
   if (editing.value) return;
   if (e.button !== 0) return;
+  // 详情态没有可排序的邻居列表，拖出去只会算出一个假的落点
+  if (props.detail) return;
   const target = e.target as HTMLElement;
   if (!target.closest(".drag-handle")) return;
   e.preventDefault();
@@ -1143,6 +1235,9 @@ watch(expanded, (val) => {
 watch(memoImages, () => {
   loadThumbnailImages();
 });
+
+// 宿主（日历编辑浮层）要能在挂载后立刻进入编辑、关闭前补一次保存、并在退出编辑时收到信号
+defineExpose({ startEdit, stopEdit, editing });
 </script>
 
 <template>
@@ -1164,6 +1259,7 @@ watch(memoImages, () => {
     <div class="memo-header">
       <div class="memo-header-left">
         <span
+          v-if="!detail"
           class="drag-handle"
           title="拖拽排序"
         >⋮</span>
@@ -1358,7 +1454,7 @@ watch(memoImages, () => {
     <div v-if="!editing" class="memo-body">
       <div
         class="memo-content markdown-body"
-        :class="{ expanded: expanded || isSearching }"
+        :class="{ expanded: expanded || isSearching || detail }"
         :key="'c-' + memo.id + '-' + searchQuery + '-' + expanded"
         @click="handleContentClick"
         @dblclick="handleContentDblClick"

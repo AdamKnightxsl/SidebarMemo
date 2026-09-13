@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// 快捷输入区的正文模板。content 里的 {date} / {time} 由前端在插入时替换，
@@ -170,7 +171,20 @@ pub(crate) fn load_settings() -> Settings {
     }
 }
 
+/// 日历视图会临时把窗口撑宽。这段时间 App.vue 每 5 秒一次的自保存会把宽版尺寸
+/// 当成用户的常规尺寸写进 settings.json，下次启动就回不去了，所以整体跳过；
+/// 退出日历时前端会还原尺寸并显式再存一次。
+static SIZE_SAVE_LOCKED: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+pub(crate) fn set_size_save_locked(locked: bool) {
+    SIZE_SAVE_LOCKED.store(locked, Ordering::Relaxed);
+}
+
 pub(crate) fn save_window_position(app: &AppHandle, window: &tauri::WebviewWindow) {
+    if SIZE_SAVE_LOCKED.load(Ordering::Relaxed) {
+        return;
+    }
     if let Ok(pos) = window.outer_position() {
         if let Ok(size) = window.inner_size() {
             if let Some(monitor) = window.primary_monitor().ok().flatten() {

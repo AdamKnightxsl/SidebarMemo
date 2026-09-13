@@ -86,7 +86,8 @@ defineExpose({ show, dismiss });
 <style scoped>
 .toast {
   position: fixed;
-  bottom: 20px;
+  /* --input-lift 是输入栏的实测高度（App.vue 量的），不抬起来会整条盖住输入栏和它的撤销按钮 */
+  bottom: calc(20px + var(--input-lift, 0px));
   right: 20px;
   background: var(--neu-bg, #e0e5ec);
   color: var(--danger, #c42b1c);

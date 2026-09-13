@@ -213,6 +213,62 @@
   box-shadow: none;
 }
 
+/* 垃圾桶「永久删除」的二次确认：贴着那张卡片的 ✕ 弹出来，不用把鼠标挪到窗口底部 */
+.trash-confirm {
+  position: fixed;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 10px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--neu-bg);
+  box-shadow: 4px 4px 8px var(--neu-shadow-dark),
+              -4px -4px 8px var(--neu-shadow-light);
+  user-select: none;
+}
+
+.trash-confirm-text {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.trash-confirm-row {
+  display: flex;
+  gap: 6px;
+}
+
+.trash-confirm-row button {
+  border: none;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--neu-bg);
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.trash-confirm-ok {
+  flex: 1;
+  color: var(--danger);
+  box-shadow: 2px 2px 4px var(--neu-shadow-dark),
+              -2px -2px 4px var(--neu-shadow-light);
+}
+
+.trash-confirm-ok:active {
+  box-shadow: inset 2px 2px 4px var(--neu-shadow-dark),
+              inset -2px -2px 4px var(--neu-shadow-light);
+}
+
+.trash-confirm-cancel { color: var(--text-muted); }
+
+.trash-confirm-cancel:hover { color: var(--text-primary); }
+
+.memo-action-btn.delete-btn.is-open { color: var(--danger); }
+
 * {
   margin: 0;
   padding: 0;
@@ -671,6 +727,13 @@ mark {
   transform: rotate(45deg);
 }
 
+/* 待办项自带复选框，前面的列表圆点是重复噪声。只摘标记，ul 的 padding-left 仍给缩进，
+   所以复选框位置不动，和普通列表项的文字左缘依旧对齐。 */
+.markdown-body li:has(> .md-task, > p > .md-task),
+.md-editor li:has(> input[type="checkbox"], > p > input[type="checkbox"]) {
+  list-style: none;
+}
+
 .markdown-body li:has(> .md-task.done),
 .markdown-body li > p:has(> .md-task.done) {
   color: var(--text-muted);
@@ -1082,25 +1145,8 @@ body.is-dragging * {
   opacity: 1;
 }
 
-.memo-card:has(.reminder-btn.active) .memo-actions .memo-action-btn:not(.reminder-btn) {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.memo-card:has(.reminder-btn.active):hover .memo-actions .memo-action-btn:not(.reminder-btn) {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.memo-card:has(.reminder-btn.active) .reminder-btn.active {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.memo-card:has(.reminder-btn.active) .memo-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
+/* 设了提醒的卡片不再把右上角那个闹钟按钮钉成常显：有没有提醒已经由标题栏左侧
+   .memo-remind（⏰ + 时间）说明，右侧这一排统一 hover 才出现，和其他按钮同一条规则。 */
 
 .reminder-indicator {
   width: 26px;
@@ -1658,25 +1704,25 @@ body.is-dragging * {
   color: var(--text-muted);
 }
 
+/* 块级间距逐项对齐查看态 .markdown-body：编辑时看到的就是保存后的样子，不再前后跳变 */
 .md-editor h1,
 .md-editor h2,
 .md-editor h3 {
-  margin: 6px 0 4px;
   line-height: 1.35;
-  font-weight: 700;
+  font-weight: 600;
 }
 
-.md-editor h1 { font-size: 17px; }
-.md-editor h2 { font-size: 15px; }
-.md-editor h3 { font-size: 14px; }
+.md-editor h1 { font-size: 17px; margin: 8px 0 4px; }
+.md-editor h2 { font-size: 15px; margin: 6px 0 3px; }
+.md-editor h3 { font-size: 14px; margin: 2px 0 2px; line-height: 1.0; }
 
-.md-editor p { margin: 0 0 6px; }
+.md-editor p { margin: 1px 0; }
 .md-editor > :last-child { margin-bottom: 0; }
 
 .md-editor ul,
 .md-editor ol {
-  margin: 0 0 6px;
-  padding-left: 20px;
+  margin: 0;
+  padding-left: 18px;
 }
 
 .md-editor li { margin: 1px 0; }
@@ -1694,15 +1740,15 @@ body.is-dragging * {
 .md-editor code { padding: 0 3px; }
 
 .md-editor pre {
-  margin: 0 0 6px;
+  margin: 4px 0;
   padding: 6px;
   white-space: pre-wrap;
 }
 
 .md-editor blockquote {
-  margin: 0 0 6px;
+  margin: 4px 0;
   padding-left: 8px;
-  border-left: 2px solid var(--accent);
+  border-left: 3px solid var(--accent);
   color: var(--text-secondary);
 }
 
@@ -2157,10 +2203,14 @@ body.is-dragging * {
 .markdown-body {
   font-size: 13px;
   line-height: 1.4;
+  /* marked 在块与块之间会输出换行符，.memo-content 的 pre-wrap 把它们变成真空行，
+     于是查看态比编辑态（游离空白已被序列化层清掉）行距大一截。
+     软换行由 breaks 产出的 <br> 表达，pre 仍走 UA 自己的保留策略。 */
+  white-space: normal;
 }
 .markdown-body h1 { font-size: 17px; margin: 8px 0 4px; font-weight: 600; }
 .markdown-body h2 { font-size: 15px; margin: 6px 0 3px; font-weight: 600; }
-.markdown-body h3 { font-size: 14px; margin: 2px 0 -6px !important; font-weight: 600; line-height: 1.0; }
+.markdown-body h3 { font-size: 14px; margin: 2px 0 2px !important; font-weight: 600; line-height: 1.0; }
 .markdown-body p { margin: 1px 0; }
 .markdown-body ul, .markdown-body ol { padding-left: 18px; margin: 0px 0; }
 .markdown-body li { margin: 1px 0; }
@@ -2212,7 +2262,8 @@ mark {
 /* ── 更新通知卡片 ── */
 .update-notify {
   position: fixed;
-  bottom: 16px;
+  /* 和 toast 同一个问题：贴底会压在输入栏上，且这张卡片要手动关才消失。抬到输入栏上方，横向不动 */
+  bottom: calc(16px + var(--input-lift, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -2362,4 +2413,571 @@ mark {
   to {
     clip-path: circle(0% at var(--reveal-x, 50%) var(--reveal-y, 50%));
   }
+}
+
+/* ══════════════ 日历视图（宽版）══════════════════════════
+   格子高度由 CalendarView 的 CELL_H 写进 gridAutoRows 内联样式；
+   .cal-day 占 17px、每条 15px + 2px 间距，横贯带坐标按同一组数字算。 */
+.cal-view {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* 编辑浮层以整个日历视图为定位上下文，从右缘铺开盖住清单那一列 */
+  position: relative;
+  animation: cal-in 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes cal-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+.cal-body {
+  height: 100%;
+  display: flex;
+  min-height: 0;
+}
+
+.cal-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px 4px;
+  flex-shrink: 0;
+}
+
+.cal-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-right: auto;
+  min-width: 0;
+}
+
+.cal-month {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+}
+
+.cal-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cal-nav {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cal-nav:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.cal-nav:active {
+  transform: scale(0.88);
+  transition: transform 0.1s ease;
+}
+
+.cal-today-btn {
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  border: none;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  box-shadow: 2px 2px 5px var(--neu-shadow-dark), -2px -2px 5px var(--neu-shadow-light);
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cal-today-btn:hover { color: var(--accent); }
+
+.cal-today-btn:active {
+  transform: scale(0.92);
+  box-shadow: inset 2px 2px 5px var(--neu-shadow-dark), inset -2px -2px 5px var(--neu-shadow-light);
+}
+
+/* 1fr 的 min-width 默认是 auto，格子里 nowrap 的文字条会把列撑破并压到右侧清单上，
+   所以星期行和网格都必须 minmax(0, 1fr) */
+.cal-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+  padding: 0 10px 3px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.cal-week .we { color: color-mix(in srgb, var(--danger) 70%, var(--text-muted)); }
+
+.cal-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+  padding: 0 10px 8px;
+  flex-shrink: 0;
+}
+
+.cal-grid.dir-next { animation: cal-next 0.24s cubic-bezier(0.33, 1, 0.68, 1); }
+.cal-grid.dir-prev { animation: cal-prev 0.24s cubic-bezier(0.33, 1, 0.68, 1); }
+
+@keyframes cal-next {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes cal-prev {
+  from { opacity: 0; transform: translateX(-14px); }
+  to { opacity: 1; transform: none; }
+}
+
+.cal-cell {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  border-radius: 9px;
+  padding: 2px 5px 3px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  transition: box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.cal-cell:hover { background: color-mix(in srgb, var(--neu-shadow-light) 55%, transparent); }
+
+.cal-cell.is-out { opacity: 0.32; }
+
+/* 平面格子套 inset 双向阴影在深色下会变成一个黑洞，选中态改用强调色淡底 + 内描边 */
+.cal-cell.is-sel {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.cal-cell.is-drop {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.cal-day {
+  height: 15px;
+  line-height: 15px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  align-self: flex-start;
+  padding: 0 3px;
+  border-radius: 5px;
+}
+
+.cal-cell.is-we .cal-day { color: color-mix(in srgb, var(--danger) 62%, var(--text-muted)); }
+
+.cal-cell.is-today .cal-day {
+  color: #fff;
+  background: var(--accent);
+  font-weight: 600;
+}
+
+.cal-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.cal-bar,
+.cal-band {
+  height: 15px;
+  line-height: 15px;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 四个标记色（含深色变体）都是中浅色调，白字对比度不够，一律用深字 */
+  color: #171717;
+  background: var(--dot, var(--text-muted));
+  opacity: 0.92;
+}
+
+.cal-bar.hollow,
+.cal-band.hollow {
+  background: color-mix(in srgb, var(--dot) 16%, transparent);
+  color: var(--text-secondary);
+}
+
+.cal-bar.done,
+.cal-band.done {
+  text-decoration: line-through;
+  opacity: 0.45;
+}
+
+.cal-more {
+  font-size: 9px;
+  line-height: 12px;
+  color: var(--text-muted);
+  padding-left: 2px;
+}
+
+/* 横贯带：坐标由 JS 实测列宽算出，所以脱离格子单独挂在网格上 */
+.cal-band {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.cal-band-rep {
+  font-style: normal;
+  margin-left: 3px;
+  font-size: 9px;
+  opacity: 0.85;
+}
+
+.cal-empty-month {
+  padding: 4px 12px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cal-jump {
+  border: none;
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+  box-shadow: 2px 2px 5px var(--neu-shadow-dark), -2px -2px 5px var(--neu-shadow-light);
+  transition: all 0.2s ease;
+}
+
+.cal-jump:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+.cal-agenda {
+  width: 232px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+.cal-agenda-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px 7px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cal-agenda-head b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cal-agenda-head .wk { color: color-mix(in srgb, var(--danger) 60%, var(--text-muted)); }
+.cal-agenda-head .spacer { flex: 1; }
+
+.cal-add-btn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cal-add-btn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.cal-add-btn:active { transform: scale(0.86); }
+
+.cal-add-row {
+  padding: 0 12px 8px;
+  flex-shrink: 0;
+}
+
+.cal-add-input {
+  width: 100%;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--neu-bg) 88%, white);
+  box-shadow: inset 2px 2px 5px var(--neu-shadow-dark), inset -2px -2px 5px var(--neu-shadow-light);
+  outline: none;
+}
+
+.cal-add-input::placeholder { color: var(--text-muted); }
+
+.cal-agenda-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px 7px 8px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--neu-bg) 95%, black);
+  box-shadow: 3px 3px 7px var(--neu-shadow-dark), -3px -3px 7px var(--neu-shadow-light);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+  animation: cal-item-in 0.26s cubic-bezier(0.33, 1, 0.68, 1) backwards;
+  animation-delay: calc(var(--i) * 34ms);
+  user-select: none;
+  cursor: default;
+}
+
+@keyframes cal-item-in {
+  from { opacity: 0; transform: translateY(7px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+.cal-item:hover { transform: translateX(2px); }
+
+.cal-item:active {
+  box-shadow: inset 3px 3px 6px var(--neu-shadow-dark), inset -3px -3px 6px var(--neu-shadow-light);
+}
+
+.cal-item-bar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background: var(--dot, var(--text-muted));
+  flex-shrink: 0;
+}
+
+.cal-item-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 34px;
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+
+.cal-item-time.empty { color: color-mix(in srgb, var(--text-muted) 55%, transparent); }
+
+.cal-item-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal-item.done .cal-item-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.cal-item.done .cal-item-bar { opacity: 0.4; }
+
+.cal-chip {
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.cal-chip.rep { color: var(--accent); }
+
+.cal-empty {
+  padding: 22px 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--text-muted);
+}
+
+.cal-empty span { font-size: 10px; opacity: 0.75; }
+
+/* 拖拽：幽灵跟手，落点格子高亮。幽灵不吃点击 */
+.cal-drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  transform: translate(10px, 10px);
+  pointer-events: none;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--neu-bg);
+  box-shadow: 4px 4px 10px rgba(0, 0, 0, 0.25), -2px -2px 6px var(--neu-shadow-light);
+  white-space: nowrap;
+}
+
+.cal-drag-to {
+  font-style: normal;
+  margin-left: 6px;
+  color: var(--accent);
+}
+
+.cal-item.is-src { opacity: 0.45; }
+
+/* ── 右侧详情：单击条目就地阅读，编辑另铺一层 ─────────────────── */
+
+/* 清单头部左右两侧的小按钮（返回 / 到主界面定位 / 关闭浮层） */
+.cal-side-btn {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.cal-side-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.cal-side-btn:active { transform: scale(0.9); }
+
+.cal-detail {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 0 12px 10px;
+}
+
+/* 卡片自己滚：详情区高度固定，长正文不能把铅笔顶出可视区。
+   底部多留 34px 是给右下角那颗铅笔让位，滚到最后一行也不会被它压住 */
+.cal-detail .memo-card {
+  height: 100%;
+  overflow-y: auto;
+  padding-bottom: 34px;
+}
+
+/* 那一列只有 232px：日期行 100px + 操作行 136px 挤不进同一行，
+   而操作按钮只是 opacity:0、照样占位，于是把卡片顶出一条横向滚动条。
+   换行放，按钮仍在原处可点，只是从「日期右侧」落到「日期下方」。 */
+.cal-detail .memo-header {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.cal-edit-btn {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cal-edit-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.cal-edit-btn:active { transform: scale(0.9); }
+
+.cal-edit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 编辑浮层：232px 那一列放不下 6 键工具栏，铺开 360px（≈主界面卡片宽） */
+.cal-edit-sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 12px 12px;
+  background: var(--neu-bg);
+  border-left: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+  box-shadow: -14px 0 30px rgba(0, 0, 0, 0.18);
+  animation: cal-sheet-in 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+@keyframes cal-sheet-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+
+.cal-sheet-head { padding-left: 0; }
+
+.cal-sheet-card {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }

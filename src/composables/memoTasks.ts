@@ -22,6 +22,11 @@ const TAG_RE = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g;
 const TASK_BOX = '<span class="md-task"></span>';
 const TASK_DONE = '<span class="md-task done"></span>';
 
+/** 属性必须落在标签内部：拼在闭合 span 之后会变成正文里的文字 */
+function taskSpan(index: number, checked: boolean): string {
+  return (checked ? TASK_DONE : TASK_BOX).replace(">", ` data-task="${index}">`);
+}
+
 export interface TaskMark {
   /** 方括号内那个标记字符（空格 / x / X）在正文中的下标 */
   boxAt: number;
@@ -52,21 +57,26 @@ export function taskMarks(content: string): TaskMark[] {
 /**
  * 把渲染结果里的只读复选框换成 <span class="md-task">，供卡片点击回写正文。
  * 空 span 不引入任何纯文本，所以放在高亮之前也不会让 <mark> 的下标错位。
- * 序号不写 data-* 属性（净化白名单没放开），点击时按 DOM 顺序数第几个即可。
+ *
+ * 配对按文档顺序取 min(框数, 标记数)：数量不等时旧做法是整卡一个都不换，
+ * 一行写坏的待办就能让全卡复选框集体失效。现在只把多出来的框留成只读，
+ * 并把「这个框对应正文里第几个标记」写进 data-task，点击时按下标回写，
+ * 不再用 DOM 序号猜——序号猜错就是点一行改另一行。
  */
 export function markTasksInHtml(html: string, content: string): string {
   if (!html || !html.includes("<input")) return html;
   const marks = taskMarks(content);
   if (marks.length === 0) return html;
   const boxes = checkboxTags(html);
-  if (boxes.length !== marks.length) return html;
+  const pair = Math.min(boxes.length, marks.length);
 
   const parts: string[] = [];
   let last = 0;
-  boxes.forEach((box, i) => {
-    parts.push(html.slice(last, box.start), marks[i].checked ? TASK_DONE : TASK_BOX);
+  for (let i = 0; i < pair; i++) {
+    const box = boxes[i];
+    parts.push(html.slice(last, box.start), taskSpan(i, marks[i].checked));
     last = box.end;
-  });
+  }
   parts.push(html.slice(last));
   return parts.join("");
 }

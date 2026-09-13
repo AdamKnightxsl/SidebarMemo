@@ -3,6 +3,9 @@
 //! 不引入 tauri-plugin-autostart——为一个布尔开关新增整条依赖链不值得，
 //! 且发布版要跑离线镜像拉包。这里用已有的 windows crate 直接落注册表，
 //! 卸载或关闭开关时把值一并删掉，不留残余。
+//!
+//! debug 构建（`tauri dev` 产出的 target\debug 二进制）不内嵌前端资源，只认 devUrl
+//! `http://localhost:1420`，开机自启起来的会是一扇错误页窗口，所以它只能关不能开。
 
 /// 注册表值名，与 NSIS productName 保持一致，便于用户在任务管理器「启动」页里认出
 #[cfg(target_os = "windows")]
@@ -28,6 +31,12 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
     use windows_core::PCWSTR;
 
     let exe = std::env::current_exe().map_err(|e| format!("无法取得程序路径: {}", e))?;
+    // 只拦「开」：debug 二进制写进启动项等于给自己埋一扇开不了机的窗口，
+    // 而「关」是删除值，开发版执行它没有副作用，还能让开发时清掉遗留项
+    #[cfg(debug_assertions)]
+    if enabled {
+        return Err("开发构建不含界面资源，开不了开机自启；请用已安装的版本开启".to_string());
+    }
     let subkey = widens(RUN_SUBKEY);
     let value = widens(RUN_VALUE);
 

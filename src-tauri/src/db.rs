@@ -184,6 +184,12 @@ impl MemoStore {
             }
         }
 
+        // 版本号盖章只能覆盖「正常升级路径」：开发版/中间版盖过的章会让正式版跳过
+        // 本该跑的迁移（比如 boards.color 从没被加上，get_boards 每次启动都报错，
+        // 导航栏集合按钮全空但重名检查又正常）。这里不依赖版本号，直接按实际 schema
+        // 校验补齐，幂等。
+        Self::ensure_columns(&conn)?;
+
         // 迁移跑完再自愈一次：集合可以整体删除，外部导入的 JSON 也可能带一个库里没有的
         // board id。悬空引用会让这条便签既被今/昨排除、又标不出归属，等于凭空消失，
         // 所以统一退回普通便签。
@@ -194,6 +200,26 @@ impl MemoStore {
         )?;
 
         Ok(Self { conn })
+    }
+
+    /// 按实际 schema 补列，不依赖版本号。只补「缺了会让查询直接报错」的列；
+    /// 补列动作写进诊断日志，事后能回溯这次自愈有没有发生过。
+    fn ensure_columns(conn: &Connection) -> rusqlite::Result<()> {
+        const REQUIRED: [(&str, &str, &str); 2] = [
+            ("boards", "color", "ALTER TABLE boards ADD COLUMN color TEXT NOT NULL DEFAULT ''"),
+            ("memos", "board", "ALTER TABLE memos ADD COLUMN board TEXT NOT NULL DEFAULT ''"),
+        ];
+        for (table, column, ddl) in REQUIRED {
+            let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+            let exists = stmt
+                .query_map([], |r| r.get::<_, String>(1))?
+                .any(|c| c.map(|name| name == column).unwrap_or(false));
+            if !exists {
+                conn.execute_batch(ddl)?;
+                crate::settings::diag(&format!("SCHEMA repair: {}.{} 列缺失，已补齐", table, column));
+            }
+        }
+        Ok(())
     }
 
     fn row_to_memo(row: &rusqlite::Row) -> rusqlite::Result<Memo> {

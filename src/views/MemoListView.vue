@@ -4,12 +4,13 @@ import SearchBar from "../components/SearchBar.vue";
 import FilterMenu from "../components/FilterMenu.vue";
 import MemoCard from "../components/MemoCard.vue";
 import QuickInput from "../components/QuickInput.vue";
-import { useMemos, type ShowToastFn } from "../composables/useMemos";
+import { useMemos, type Memo, type ShowToastFn } from "../composables/useMemos";
+import { usePopupPosition } from "../composables/usePopupPosition";
 import { useSettings } from "../composables/useSettings";
 import { marked } from "marked";
 import { matchesQuery, highlightInHtml } from "../composables/pinyinSearch";
 import { sanitizeHtml } from "../composables/sanitizeHtml";
-import { isComposing, contentPreview } from "../utils";
+import { isComposing } from "../utils";
 import { selectedIndex } from "../composables/useKeyboard";
 
 const { memos, pinnedMemos, unpinnedMemos, addMemo, searchQuery, colorFilter, tagFilter, dateFilter, boardFilter, boards, trashedMemos, archivedMemos, loadTrashedMemos, loadArchivedMemos, setArchived, restoreFromTrash, permanentDeleteMemo, clearTrash } = useMemos();
@@ -105,25 +106,65 @@ function renderArchivedContent(content: string): string {
 }
 
 const trashedDeletingId = ref<string | null>(null);
-function handlePermanentDelete(id: string) {
-  const memo = trashedMemos.value.find((m) => m.id === id);
-  if (!memo) return;
-  showToast(
-    `永久删除无法恢复（含图片）：${contentPreview(memo.content)}`,
-    6000,
-    undefined,
-    {
-      label: "确认删除",
-      onClick: () => {
-        trashedDeletingId.value = id;
-        setTimeout(() => {
-          trashedDeletingId.value = null;
-          permanentDeleteMemo(id);
-        }, 250);
-      },
-    },
-  );
+
+/**
+ * 二次确认贴着 ✕ 按钮弹，不再丢到窗口底部的 toast：垃圾桶里的卡片可能离底部很远，
+ * 每次都要把鼠标拖到底部点「确认删除」太累。永久删除撤销不了，确认这一步仍然保留。
+ */
+const delBtnEl = ref<HTMLElement | null>(null);
+const delPopupEl = ref<HTMLElement | null>(null);
+/** 正在等确认的那条 id。弹层文案是固定的，所以只存 id 就够 */
+const delPopupId = ref<string | null>(null);
+const { popupStyle, updatePosition } = usePopupPosition(delBtnEl, "bottom-right", 6);
+
+async function placeDelPopup() {
+  await nextTick();
+  updatePosition();
+  const btn = delBtnEl.value;
+  const pop = delPopupEl.value;
+  if (!btn || !pop) return;
+  const r = btn.getBoundingClientRect();
+  let top = r.bottom + 6;
+  // 最后几张卡片下方放不下就翻到按钮上沿
+  if (top + pop.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - pop.offsetHeight - 6);
+  popupStyle.value = { ...popupStyle.value, top: `${Math.round(top)}px` };
 }
+
+function closeDelPopup() {
+  delPopupId.value = null;
+  delBtnEl.value = null;
+}
+
+function handlePermanentDelete(memo: Memo, e: MouseEvent) {
+  if (delPopupId.value === memo.id) {
+    closeDelPopup();
+    return;
+  }
+  delBtnEl.value = e.currentTarget as HTMLElement;
+  delPopupId.value = memo.id;
+  void placeDelPopup();
+}
+
+function confirmPermanentDelete() {
+  const id = delPopupId.value;
+  closeDelPopup();
+  if (!id) return;
+  trashedDeletingId.value = id;
+  setTimeout(() => {
+    trashedDeletingId.value = null;
+    permanentDeleteMemo(id);
+  }, 250);
+}
+
+function onDocMouseDown(e: MouseEvent) {
+  if (!delPopupId.value) return;
+  const el = e.target as HTMLElement | null;
+  if (!el?.closest(".trash-confirm")) closeDelPopup();
+}
+
+watch(dateFilter, closeDelPopup);
+onMounted(() => document.addEventListener("mousedown", onDocMouseDown, true));
+onBeforeUnmount(() => document.removeEventListener("mousedown", onDocMouseDown, true));
 
 function handleClearTrash() {
   const count = trashedMemos.value.length;
@@ -339,7 +380,7 @@ watch(() => settings.value.skin, () => {
     <div class="memo-list-wrapper">
       <div class="memo-list-gradient-top"></div>
       <div class="memo-list-gradient-bottom"></div>
-      <div class="memo-list scrollbar-hide" ref="trashListRef">
+      <div class="memo-list scrollbar-hide" ref="trashListRef" @scroll.passive="closeDelPopup">
         <div class="shadow-spacer"></div>
         <template v-if="filteredTrashed.length > 0">
           <div
@@ -362,7 +403,8 @@ watch(() => settings.value.skin, () => {
                 >↩</button>
                 <button
                   class="memo-action-btn delete-btn"
-                  @click.stop="handlePermanentDelete(memo.id)"
+                  :class="{ 'is-open': delPopupId === memo.id }"
+                  @click.stop="handlePermanentDelete(memo, $event)"
                   title="永久删除"
                 ><span style="font-size: 20px;">×</span></button>
               </div>
@@ -391,6 +433,24 @@ watch(() => settings.value.skin, () => {
         <span>清空</span>
       </button>
     </div>
+
+    <!-- 永久删除的二次确认：贴着那张卡片的 ✕ 弹出来（teleport 出去才不被列表的 overflow 裁掉） -->
+    <Teleport to="body">
+      <div
+        v-if="delPopupId"
+        ref="delPopupEl"
+        class="trash-confirm"
+        :style="popupStyle"
+        @click.stop
+        @mousedown.stop
+      >
+        <span class="trash-confirm-text">无法恢复</span>
+        <div class="trash-confirm-row">
+          <button class="trash-confirm-ok" @click="confirmPermanentDelete">确认</button>
+          <button class="trash-confirm-cancel" @click="closeDelPopup">取消</button>
+        </div>
+      </div>
+    </Teleport>
   </template>
 
   <!-- 归档视图 -->

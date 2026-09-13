@@ -2,6 +2,7 @@
 import { ref, nextTick, onMounted, onBeforeUnmount, provide, watch } from "vue";
 import SideNav from "./components/SideNav.vue";
 import MemoListView from "./views/MemoListView.vue";
+import CalendarView from "./views/CalendarView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import Toast from "./components/Toast.vue";
 import OnboardingTour from "./components/OnboardingTour.vue";
@@ -10,6 +11,7 @@ import { useSettings } from "./composables/useSettings";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { useWindowSnap } from "./composables/useWindowSnap";
+import { enterCalendarSize, exitCalendarSize } from "./composables/useCalendarSize";
 import { useTour } from "./composables/useTour";
 import { useUpdater } from "./composables/useUpdater";
 
@@ -22,6 +24,8 @@ const { checkForUpdates, installUpdate, updating, downloadProgress, updateVersio
 const showUpdateNotify = ref(false);
 
 function showToast(msg: string, duration = 0, onClick?: () => void, action?: ToastAction) {
+  // 弹出位置按输入栏当前高度算，不等 ResizeObserver 回调（多行输入后立刻弹提示是常态）
+  measureInputLift();
   toastRef.value?.show(msg, duration, onClick, action);
 }
 provide("showToast", showToast);
@@ -45,9 +49,11 @@ function onVisibilityChange() {
   }
 }
 
-const currentView = ref<"memos" | "today" | "yesterday" | "archive" | "trash" | "settings" | "board">("memos");
+const currentView = ref<"memos" | "today" | "yesterday" | "archive" | "trash" | "settings" | "board" | "calendar">("memos");
 /** 当前打开的集合 id。与 currentView 分开存，导航栏才能把「集合」当成一类视图而不是每个集合一个视图 */
 const currentBoard = ref("");
+/** 打开日历前的视图＋集合，收起时回到这里 */
+const calendarReturn = ref<{ view: NavView; board: string }>({ view: "memos", board: "" });
 const { loadMemos, loadBoards, dateFilter, boardFilter } = useMemos();
 const { settings, loadSettings } = useSettings();
 
@@ -79,11 +85,41 @@ watch([currentView, currentBoard], ([v, board]) => {
   else dateFilter.value = "all";
 });
 
-type NavView = "memos" | "today" | "yesterday" | "archive" | "trash" | "settings" | "board";
+type NavView = "memos" | "today" | "yesterday" | "archive" | "trash" | "settings" | "board" | "calendar";
 
 function navigateTo(view: NavView, boardId = "") {
+  if (view === "calendar") {
+    // 再点一次＝收起，回到打开前的视图
+    if (currentView.value === "calendar") closeCalendar();
+    else {
+      calendarReturn.value = { view: currentView.value, board: currentBoard.value };
+      currentView.value = view;
+      currentBoard.value = "";
+    }
+    return;
+  }
   currentView.value = view;
   currentBoard.value = boardId;
+}
+
+/** 日历要临时把窗口撑宽，其它视图一律还原成用户自己的尺寸 */
+watch(currentView, (v) => {
+  if (v === "calendar") void enterCalendarSize();
+  else void exitCalendarSize();
+});
+
+/** 收起日历：回到打开前那个视图，集合视图要连当时那个集合一起还原 */
+function closeCalendar() {
+  const back = calendarReturn.value;
+  calendarReturn.value = { view: "memos", board: "" };
+  currentView.value = back.view;
+  currentBoard.value = back.board;
+}
+
+/** 日历里点一条＝回主列表定位到那张卡片 */
+function jumpFromCalendar(id: string) {
+  navigateTo("memos");
+  nextTick(() => memoListRef.value?.scrollToMemo(id));
 }
 
 /** 卡片上的集合标签点击后打开对应集合 */
@@ -227,6 +263,7 @@ onMounted(async () => {
   positionSaveTimer = setInterval(() => {
     invoke("save_current_position");
   }, 5000);
+  nextTick(bindInputLift);
 });
 
 onBeforeUnmount(() => {
@@ -235,7 +272,36 @@ onBeforeUnmount(() => {
   unlistenReminder?.();
   unlistenQuickNote?.();
   document.removeEventListener("visibilitychange", onVisibilityChange);
+  inputLiftObserver?.disconnect();
+  inputLiftObserver = null;
 });
+
+/**
+ * toast 和更新卡片都是 fixed 贴底的，正好压在输入栏上（撤销按钮就在那一栏里）。
+ * 输入栏会随多行输入自己长高，所以抬升量按实测高度算，量到之后写成 .app-container 上的
+ * --input-lift，两个贴底弹层各自 calc() 抬到它上面；横向位置不动。
+ * 没有输入栏的视图（日历 / 设置）归零，保持原来的贴底位置。
+ */
+let inputLiftObserver: ResizeObserver | null = null;
+
+function measureInputLift() {
+  const host = appContainer.value;
+  if (!host) return;
+  const bar = document.querySelector<HTMLElement>(".quick-input-area");
+  host.style.setProperty("--input-lift", bar ? `${Math.round(bar.getBoundingClientRect().height)}px` : "0px");
+}
+
+function bindInputLift() {
+  inputLiftObserver?.disconnect();
+  inputLiftObserver = null;
+  measureInputLift();
+  const bar = document.querySelector<HTMLElement>(".quick-input-area");
+  if (!bar) return;
+  inputLiftObserver = new ResizeObserver(measureInputLift);
+  inputLiftObserver.observe(bar);
+}
+
+watch(currentView, () => nextTick(bindInputLift));
 
 async function handleUpdateFromNotify() {
   showUpdateNotify.value = false;
@@ -351,7 +417,8 @@ function onBottomResizeMouseUp() {
           </button>
         </div>
       </div>
-      <MemoListView ref="memoListRef" v-if="currentView !== 'settings'" />
+      <MemoListView ref="memoListRef" v-if="currentView !== 'settings' && currentView !== 'calendar'" />
+      <CalendarView v-else-if="currentView === 'calendar'" @jump="jumpFromCalendar" @exit="closeCalendar" />
       <SettingsView v-else />
     </div>
     <div class="resize-handle" @mousedown="onResizeMouseDown"></div>

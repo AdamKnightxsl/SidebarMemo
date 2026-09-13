@@ -6,7 +6,7 @@ import { usePopupPosition } from "../composables/usePopupPosition";
 import { useClickOutside } from "../composables/useClickOutside";
 import { isComposing } from "../utils";
 
-type NavView = "memos" | "today" | "yesterday" | "board" | "archive" | "trash" | "settings";
+type NavView = "memos" | "today" | "yesterday" | "board" | "archive" | "trash" | "calendar" | "settings";
 
 const props = defineProps<{
   current: string;
@@ -272,6 +272,22 @@ function boardLines(name: string): string[] {
       </svg>
     </button>
     <div class="nav-spacer"></div>
+    <button
+      class="nav-btn"
+      :class="{ active: current === 'calendar' }"
+      @click="$emit('change', 'calendar')"
+      data-nav="calendar"
+      title="日历"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="5" width="18" height="16" rx="2"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
+        <line x1="8" y1="3" x2="8" y2="7"/>
+        <line x1="16" y1="3" x2="16" y2="7"/>
+        <circle cx="8.5" cy="14.5" r="1" fill="currentColor" stroke="none"/>
+        <circle cx="12.5" cy="14.5" r="1" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
     <button
       class="nav-btn"
       :class="{ active: current === 'settings' }"

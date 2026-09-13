@@ -5,7 +5,14 @@ export function isComposing(e: KeyboardEvent): boolean {
 
 /** 便签正文压成一行摘要，用于 Toast 里辨认是哪条（markdown 标记会干扰阅读，直接去掉） */
 export function contentPreview(content: string, max = 18): string {
-  const plain = (content || "").replace(/[#*>`~\[\]()!_]/g, " ").replace(/\s+/g, " ").trim();
+  // 编辑器的空行存成字面 <br>（markdown 表达不出块之间的空行），空待办的正文是零宽占位字符，
+  // 两者都不能露进摘要
+  const plain = (content || "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/[\u200b-\u200f\ufeff]/g, "")
+    .replace(/[#*>`~\[\]()!_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!plain) return "（空内容）";
   return plain.length > max ? plain.slice(0, max) + "…" : plain;
 }

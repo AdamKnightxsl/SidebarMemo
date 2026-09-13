@@ -215,10 +215,30 @@ export function useMemos() {
     }
   }
 
+  /**
+   * 在指定日期记一条：建完立刻把提醒挂到那天的 09:00，日历上才会当场出现在那一格。
+   * 提醒失败不回滚便签（内容已经存下了），只提示。
+   */
+  async function addMemoAt(content: string, dayKey: string): Promise<Memo | null> {
+    try {
+      const memo = await invoke<Memo>("add_memo", { content, board: "" });
+      memos.value.unshift(memo);
+      await setReminder(memo.id, `${dayKey} 09:00:00`);
+      return memo;
+    } catch (e) {
+      toast(String(e));
+      return null;
+    }
+  }
+
   async function loadBoards() {
     try {
-      boards.value = await invoke<Board[]>("get_boards");
+      // 与 loadMemos 同样要过 invokeWithRetry：开机自启时后端 setup 还没 manage 状态，
+      // 这里不重试就等于导航栏整场会话都看不到集合（便签有内容、集合按钮全空）
+      boards.value = await invokeWithRetry<Board[]>(() => invoke<Board[]>("get_boards"));
     } catch (e) {
+      // 只 toast 会被忽略，导航栏静默变空后无从排查：写进诊断日志留痕
+      invoke("fe_log", { msg: `loadBoards failed: ${String(e)}` }).catch(() => {});
       toast(String(e));
     }
   }
@@ -413,7 +433,8 @@ export function useMemos() {
     }
   }
 
-  async function setReminder(id: string, remindAt: string, repeat: RepeatValue = "") {
+  /** @returns 是否设置成功，日历拖拽改期后要据此决定要不要把选中日挪过去 */
+  async function setReminder(id: string, remindAt: string, repeat: RepeatValue = ""): Promise<boolean> {
     try {
       await invoke("set_reminder", { id, remindAt, remindRepeat: repeat });
       const m = memos.value.find((m) => m.id === id);
@@ -423,8 +444,10 @@ export function useMemos() {
         m.remind_repeat = repeat === "monthly" ? `monthly:${remindAt.slice(8, 10)}` : repeat;
       }
       toast(repeat ? `提醒已设置 · ${repeatLabel(repeat)}` : "提醒已设置", 2000);
+      return true;
     } catch (e) {
       toast(String(e));
+      return false;
     }
   }
 
@@ -533,6 +556,7 @@ export function useMemos() {
     setMemoBoard,
     setArchived,
     addMemo,
+    addMemoAt,
     updateMemo,
     deleteMemo,
     togglePin,
