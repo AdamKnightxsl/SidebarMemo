@@ -1,11 +1,11 @@
 {
-  "version": "1.0.9",
-  "notes": "新增便签所见即所得编辑、集合与归档、标签筛选与待办勾选、重复提醒、开机自启和数据导入导出",
-  "pub_date": "2026-09-07T20:45:14.213Z",
+  "version": "1.1.0",
+  "notes": "新增日历视图，按月查看便签、拖拽改提醒日期；编辑器支持选区加标题与标题自动编号，修复待办勾选",
+  "pub_date": "2026-09-13T17:31:58.488Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYmQyV3p2ZWVqalpNTm9SYWFDMko1eWw5MzBGMGt2U3VUMWlTNnAxeFN6enczaHdNRmJ5UlJhU1FmeHpFYlFJc0YzMHFxTzJxNWdwYXFSd2JLZTk0ZXdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4ODEzOTA2CWZpbGU6U2lkZWJhciBNZW1vXzEuMC45X3g2NC1zZXR1cC5leGUKY1h6UzFYWEVKWGp4clgyek1oS0ZCYjhSMW9JRzVRMXZwYUE5STdSbkZod2xpejVrS1IvSWdTT0Z2c0phTG5IV3dCVS9ka21XWFdkTURZZ242Z1hJQ3c9PQo=",
-      "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.0.9/Sidebar.Memo_1.0.9_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRRUVsTDYrZGIyYlphd1R4TGc5WVdBSzhhUjNkTjdpVG1BL0E3aXBxdWwxcTd2anZYY1ptck5IWVVBNmJvNXRiZndDVmN2blhndzZzbEM0MlAyRUs2dWFqZnRHSVVkVUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5MzIwNzA1CWZpbGU6U2lkZWJhciBNZW1vXzEuMS4wX3g2NC1zZXR1cC5leGUKc1RNQVg4QUVLRmdrK2xJVGw5TDV6QnFuODNDYXFiRThzNWlHQjhrQ0V3OHlFTElnZDV5UVJnR2NHVkdEN3g3MmhBeU9MNktSbE9NTEtPZzZEN1RtQWc9PQo=",
+      "url": "https://github.com/AdamKnightxsl/SidebarMemo/releases/download/v1.1.0/Sidebar.Memo_1.1.0_x64-setup.exe"
     }
   }
 }
